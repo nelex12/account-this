@@ -1,0 +1,24 @@
+# Секреты
+.env
+*.env
+
+# Visual Studio / .NET (бэкенд)
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Frontend (Node / Vite)
+node_modules/
+dist/
+.output/
+.vite/
+*.local
+
+# Логи и ОС
+*.log
+.DS_Store
+Thumbs.db
