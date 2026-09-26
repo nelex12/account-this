@@ -49,3 +49,31 @@ nginx/ — Конфигурация Nginx для продакшен-сборки
 docker-compose.yml — Описание контейнеров приложения.
 
 *.bat — Скрипты быстрой автоматизации для Windows.
+
+
+Для frontend по структуре:
+Основные файлы для работы (90% времени)
+frontend/src/ — Главная рабочая директория.
+
+src/components/ (создаётся по ходу) — UI-компоненты (кнопки, формы, таблицы, модалки).
+
+src/pages/ или src/views/ (создаётся по ходу) — страницы приложения (Авторизация, Дашборд, Профиль).
+
+src/api/ или src/services/ (создаётся по ходу) — файлы с запросами к бэкенду (Axios / fetch).
+
+src/App.tsx — главный корневой компонент приложения.
+
+src/main.tsx — точка входа React (подключение провайдеров, роутинга, стилей).
+
+src/index.css / src/App.css — глобальные CSS/Tailwind стили.
+
+frontend/public/ — статика, которая отдаётся "как есть" (иконка сайта favicon.svg, логотипы, SVG-спрайты).
+
+Конфигурационные файлы (правит редкo)
+frontend/package.json — список библиотек (dependencies) и npm-скриптов (npm run dev, npm run build).
+
+frontend/vite.config.ts — конфиг сборщика Vite (настройка проксирования API, портов dev-сервера, алиасов путей вроде @/components).
+
+frontend/index.html — HTML-шаблон (в нем меняет заголовок <title> и подключает внешние шрифты).
+
+frontend/tsconfig.json (tsconfig.app.json, tsconfig.node.json) — настройки TypeScript.

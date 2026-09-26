@@ -1,10 +1,22 @@
+using System.ComponentModel.DataAnnotations;
+
+
 namespace AccountThis.Api.Models;
 
-public record User
+
+public class User
 {
     public long Id { get; init; }
-    public string FullName { get; init; } = default!;
-    public string? Gender { get; init; }
-    public short? Age { get; init; }
-    public DateTimeOffset CreatedAt { get; init; }
-}
+
+    [Required]
+    [MaxLength(200)]
+    public string FullName { get; set; } = null!;
+
+    [Required]
+    [Range(0, 150)]
+    public int Age { get; set; }
+
+    [Required]
+    [RegularExpression("Male|Female")]
+    public string Gender { get; set; } = null!;
+};
