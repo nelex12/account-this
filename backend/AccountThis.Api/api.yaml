@@ -1,0 +1,495 @@
+openapi: 3.0.3
+info:
+  title: API Системы учета и выдачи инструментов
+  description: Спецификация REST API для синхронизации, авторизации и управления реестром оборудования с проверкой Ed25519 подписей оффлайн.
+  version: 1.4.0
+
+servers:
+  - url: https://api.zavhoz.local
+    description: Основной сервер
+
+paths:
+
+  # ==========================================
+  # АВТОРИЗАЦИЯ И КЛЮЧИ
+  # ==========================================
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Регистрация нового пользователя
+      description: Создает аккаунт со статусом is_approved = false (требуется подтверждение). Без авторизации.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Аккаунт зарегистрирован и ожидает подтверждения
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Вход в систему
+      description: Возвращает стандартный JWT для доступа к API. Без авторизации.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешная авторизация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+
+  /api/auth/server-key:
+    get:
+      tags: [Auth]
+      summary: Получение публичного ключа сервера
+      description: Используется завхозом для верификации токенов сотрудников в оффлайне. Публичный ключ, без авторизации.
+      responses:
+        '200':
+          description: Публичный ключ Ed25519 сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerKeyResponse'
+
+  /api/auth/worker-cert:
+    get:
+      tags: [Auth]
+      summary: Выдача сертификата и временного ключа сотруднику
+      description: |
+        Сервер генерирует временную пару ключей, подписывает публичную часть вместе с идентификатором
+        пользователя и отдаёт сотруднику для оффлайн работы. Приватный ключ сервером не сохраняется.
+
+        **Требуется роль:** Worker.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Временный приватный ключ и подписанный токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerCertificate'
+
+  # ==========================================
+  # УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ
+  # ==========================================
+  /api/users:
+    get:
+      tags: [Users]
+      summary: Список пользователей
+      description: "**Требуется роль:** Owner."
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Список всех пользователей
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserResponse'
+
+  /api/users/{id}:
+    delete:
+      tags: [Users]
+      summary: Уволить/Деактивировать пользователя
+      description: "**Требуется роль:** Owner."
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Пользователь уволен (is_active = false)
+
+  /api/users/{id}/approve:
+    post:
+      tags: [Users]
+      summary: Подтверждение регистрации пользователя
+      description: "**Требуется роль:** Owner."
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Пользователь активирован
+
+  # ==========================================
+  # УПРАВЛЕНИЕ ИНСТРУМЕНТАМИ
+  # ==========================================
+  /api/tools:
+    get:
+      tags: [Tools]
+      summary: Получение реестра инструментов
+      description: |
+        Возвращает список активных инструментов для печати QR-кодов завхозом.
+
+        **Требуется роль:** Issuer, Owner.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Список инструментов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tool'
+
+    post:
+      tags: [Tools]
+      summary: Добавление нового инструмента
+      description: "**Требуется роль:** Issuer, Owner."
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateToolRequest'
+      responses:
+        '201':
+          description: Инструмент создан и ему присвоен ID
+
+  /api/tools/{id}:
+    get:
+      tags: [Tools]
+      summary: Данные инструмента
+      description: "**Требуется роль:** Issuer, Owner."
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Информация об инструменте
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tool'
+
+    patch:
+      tags: [Tools]
+      summary: Частичное обновление состояния инструмента
+      description: |
+        Используется завхозом для фиксации поломки или ремонта вручную, вне цикла выдачи/возврата.
+        Обычный путь обновления `condition` — успешная синхронизация в `/api/sync`; этот метод — для
+        внепланового вмешательства.
+
+        **Требуется роль:** Issuer, Owner.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateToolConditionRequest'
+      responses:
+        '200':
+          description: Состояние успешно обновлено
+
+    delete:
+      tags: [Tools]
+      summary: Списание инструмента
+      description: |
+        Переводит is_active = false. Необратимое действие.
+
+        **Требуется роль:** Owner.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Инструмент списан
+
+  # ==========================================
+  # СИНХРОНИЗАЦИЯ И ЖУРНАЛ (LOGS)
+  # ==========================================
+  /api/sync:
+    post:
+      tags: [Sync]
+      summary: Синхронизация оффлайн-выдач и возвратов
+      description: |
+        Завхоз отправляет массив считанных QR-кодов (и TAKE, и GIVE). Сервер проверяет обе подписи и
+        сроки действия, вносит логи в базу независимо от результата проверки (флаг проставляется в
+        validation_flag, запись не отбрасывается). При флаге VALID сервер также обновляет
+        `tools.condition` значением из `toolCondition`.
+
+        **Требуется роль:** Issuer.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/OfflineRentalPayload'
+      responses:
+        '200':
+          description: Все логи обработаны и сохранены
+
+  /api/logs:
+    get:
+      tags: [Sync]
+      summary: Просмотр журнала движения инструментов
+      description: |
+        Возвращает хронологию выдачи и возврата (rental_logs).
+
+        **Требуется роль:** Issuer, Owner.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: action
+          in: query
+          description: Фильтр по типу операции
+          schema:
+            type: string
+            enum: [TAKE, GIVE]
+        - name: toolId
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: История операций
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RentalLogEntry'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ---------- Request-схемы (ранее были inline-объектами → Body/Body2/...) ----------
+
+    RegisterRequest:
+      type: object
+      required: [fullName, phone, password, role]
+      properties:
+        fullName:
+          type: string
+          example: "Иванов Иван Иванович"
+        phone:
+          type: string
+          example: "+79991234567"
+        password:
+          type: string
+          example: "securePassword123"
+        role:
+          type: string
+          enum: [Worker, Issuer, Owner]
+
+    LoginRequest:
+      type: object
+      required: [phone, password]
+      properties:
+        phone:
+          type: string
+        password:
+          type: string
+
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+
+    ServerKeyResponse:
+      type: object
+      properties:
+        serverPublicKey:
+          type: string
+
+    CreateToolRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: "Дрель Bosch GSB 16 RE"
+
+    UpdateToolConditionRequest:
+      type: object
+      properties:
+        condition:
+          type: string
+          enum: [Good, Damaged, Broken]
+        comment:
+          type: string
+
+    # ---------- Основные модели ----------
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        fullName:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [Worker, Issuer, Owner]
+        isApproved:
+          type: boolean
+        isActive:
+          type: boolean
+
+    Tool:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        condition:
+          type: string
+          enum: [Good, Damaged, Broken]
+        comment:
+          type: string
+        isActive:
+          type: boolean
+
+    ServerSignedToken:
+      type: object
+      description: |
+        Токен, которым сервер подтверждает личность и временные полномочия сотрудника.
+        Не является непрозрачным блобом: бэкенд завхоза читает и использует его поля
+        (workerPublicKey, expiresAt) для оффлайн-верификации.
+      properties:
+        workerId:
+          type: integer
+          description: ID пользователя в таблице users — нужен серверу при синхронизации, чтобы связать операцию с конкретным сотрудником.
+        fio:
+          type: string
+        issuedAt:
+          type: integer
+          description: Unix time выдачи токена
+        expiresAt:
+          type: integer
+          description: Unix time истечения срока действия токена
+        workerPublicKey:
+          type: string
+        serverSignature:
+          type: string
+
+    WorkerCertificate:
+      type: object
+      description: Временные ключи и токен, которые работник получает при онлайне
+      properties:
+        temporaryPrivateKey:
+          type: string
+        serverSignedToken:
+          $ref: '#/components/schemas/ServerSignedToken'
+
+    OfflineRentalPayload:
+      type: object
+      description: |
+        Содержимое QR-кода сотрудника (и для взятия, и для возврата). Это исходный ServerSignedToken,
+        дополненный фронтендом сотрудника полями action/toolCondition/toolId/toolName/timestamp и
+        подписанный целиком временным приватным ключом сотрудника.
+      required: [serverSignedToken, action, toolCondition, toolId, toolName, timestamp, workerSignature]
+      properties:
+        serverSignedToken:
+          $ref: '#/components/schemas/ServerSignedToken'
+        action:
+          type: string
+          enum: [TAKE, GIVE]
+          description: Тип операции
+        toolCondition:
+          type: string
+          enum: [Good, Damaged, Broken]
+          description: Состояние инструмента, подтвержденное работником
+        toolId:
+          type: integer
+        toolName:
+          type: string
+        timestamp:
+          type: integer
+          description: Unix time создания QR-кода
+        workerSignature:
+          type: string
+          description: Подпись временным приватным ключом (serverSignedToken + action + toolCondition + toolId + toolName + timestamp)
+
+    RentalLogEntry:
+      type: object
+      description: |
+        Запись в неизменяемом журнале операций. Если worker_id/tool_id из payload не удалось
+        сопоставить с реальной записью (например, при поддельной подписи), workerId/toolId
+        приходят как null, а workerName/toolName — из непроверенных данных самого payload, а не из join'а.
+      properties:
+        id:
+          type: integer
+        toolId:
+          type: integer
+          nullable: true
+        toolName:
+          type: string
+        workerId:
+          type: integer
+          nullable: true
+        workerName:
+          type: string
+        issuerId:
+          type: integer
+        action:
+          type: string
+          enum: [TAKE, GIVE]
+        toolCondition:
+          type: string
+          enum: [Good, Damaged, Broken]
+        qrTimestamp:
+          type: integer
+        validationFlag:
+          type: string
+          enum: [VALID, INVALID_SERVER_SIG, INVALID_WORKER_SIG, EXPIRED_TOKEN, TIME_DRIFT]
+        createdAt:
+          type: string
+          format: date-time

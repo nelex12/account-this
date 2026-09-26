@@ -1,0 +1,19 @@
+﻿{
+  "runtime": "Net80",
+  "documentGenerator": {
+    "fromDocument": {
+      "url": "api.yaml"
+    }
+  },
+  "codeGenerators": {
+    "openApiToCSharpController": {
+      "className": "{controller}Controller",
+      "namespace": "AccountThis.Controllers",
+      "controllerBaseClass": "Microsoft.AspNetCore.Mvc.ControllerBase",
+      "generateModelValidationAttributes": true,
+      "useCancellationToken": true,
+      "generateOptionalParameters": true,
+      "output": "Controllers/Generated/Controllers.cs"
+    }
+  }
+}
