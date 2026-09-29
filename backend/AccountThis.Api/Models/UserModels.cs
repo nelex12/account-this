@@ -1,11 +1,13 @@
 ﻿namespace AccountThis.Api.Models;
 
+// components.schemas.UserResponse
 public class UserResponse
 {
     public int Id { get; set; }
 
     public string FullName { get; set; } = string.Empty;
 
+    // Нормализованный: +7XXXXXXXXXX
     public string Phone { get; set; } = string.Empty;
 
     public UserRole Role { get; set; }

@@ -11,7 +11,7 @@ namespace AccountThis.Api.Controllers;
 public class UsersController : ControllerBase
 {
     /// <summary>
-    /// Список всех пользователей.
+    /// Список всех пользователей (включая неподтверждённых и уволенных).
     /// </summary>
     [HttpGet]
     public ActionResult<List<UserResponse>> GetUsers()
@@ -20,18 +20,26 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// Уволить/деактивировать пользователя (is_active = false).
+    /// Уволить/деактивировать пользователя (is_active = false). Повторный вызов — 200.
+    /// Выданные JWT/сертификаты не отзываются. 409 — попытка уволить самого себя.
     /// </summary>
     [HttpDelete("{id}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public IActionResult DeactivateUser(int id)
     {
         throw new NotImplementedException();
     }
 
     /// <summary>
-    /// Подтверждение регистрации пользователя (is_approved = true).
+    /// Подтверждение регистрации пользователя (is_approved = true). Повторный вызов — 200.
     /// </summary>
     [HttpPost("{id}/approve")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public IActionResult ApproveUser(int id)
     {
         throw new NotImplementedException();

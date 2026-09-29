@@ -1,0 +1,127 @@
+/* =====================================================================
+   Оформление досок с макетами (для PNG и просмотра в браузере).
+   К интерфейсу приложения не относится.
+   ===================================================================== */
+:root { --sheet: #D6DCE3; --sheet-2: #E6EAEF; }
+[data-theme="dark"] { --sheet: #06080B; --sheet-2: #10151B; }
+
+html, body { margin: 0; }
+body { background: var(--sheet); color: var(--ink); font-family: var(--font-text); -webkit-font-smoothing: antialiased; }
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ---------- Доска ---------- */
+.sheet-board { display: block; width: max-content; padding: 56px 64px 64px; background: var(--sheet); color: var(--ink); }
+.sheet-board__head { display: grid; gap: 12px; max-width: 1120px; margin-bottom: 44px; }
+.sheet-board__eyebrow { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.sheet-board__eyebrow .logo__mark { width: 22px; height: 22px; color: var(--ink); }
+.sheet-board__title { margin: 0; font: 600 40px/1.12 var(--font-display); letter-spacing: -.01em; text-wrap: balance; }
+.sheet-board__lead { margin: 0; max-width: 92ch; font-size: 17px; line-height: 1.55; color: var(--ink-2); }
+.sheet-board__file { font: 500 13px/1 var(--font-mono); color: var(--ink-3); }
+
+.shots { display: flex; align-items: flex-start; gap: 48px; }
+.shot { margin: 0; display: grid; gap: 22px; align-content: start; }
+.shot figcaption { display: grid; gap: 6px; }
+.shot__title { display: flex; align-items: baseline; gap: 10px; font-size: 17px; font-weight: 600; line-height: 1.3; }
+.shot__n { flex: none; display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 8px; border-radius: 999px; background: var(--ink); color: var(--sheet); font-size: 14px; font-weight: 700; }
+.shot__actor { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.shot__text { font-size: 14.5px; line-height: 1.5; color: var(--ink-2); }
+.flow-arrow { align-self: center; margin-top: -120px; color: var(--ink-3); display: grid; place-items: center; }
+.flow-arrow .i { width: 36px; height: 36px; stroke-width: 1.6; }
+.lane-break { width: 2px; align-self: stretch; background: repeating-linear-gradient(180deg, var(--ink-4) 0 8px, transparent 8px 16px); margin: 0 8px; }
+
+/* ---------- Рамки устройств ---------- */
+.device { position: relative; flex: none; }
+.device--phone {
+  width: 410px; padding: 10px; border-radius: 56px; background: var(--device);
+  box-shadow: 0 0 0 1px var(--device-edge), var(--shadow-overlay);
+}
+.device__screen { position: relative; display: flex; flex-direction: column; width: 390px; height: 844px; overflow: hidden; border-radius: 46px; background: var(--surface); }
+.device__status {
+  flex: none; height: 46px; display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 30px 0 36px; background: var(--surface); color: var(--ink);
+  font: 600 15px/1 var(--font-text); font-variant-numeric: tabular-nums;
+}
+.device__island { position: absolute; top: 11px; left: 50%; transform: translateX(-50%); width: 112px; height: 32px; border-radius: 18px; background: var(--device); z-index: 5; }
+.device__sys { display: flex; align-items: center; gap: 6px; }
+.device__sys svg { display: block; fill: currentColor; }
+.device__viewport { position: relative; flex: 1; min-height: 0; }
+.device__home { flex: none; height: 26px; display: grid; place-items: center; background: var(--surface); }
+.device__home::after { content: ""; width: 134px; height: 5px; border-radius: 3px; background: var(--ink); opacity: .85; }
+.device--cam .device__status, .device--cam .device__home { background: var(--cam); color: var(--cam-ink); }
+.device--cam .device__home::after { background: var(--cam-ink); }
+
+.device--desktop {
+  width: 1282px; overflow: hidden; border-radius: 12px; background: var(--surface);
+  border: 1px solid var(--line-strong); box-shadow: var(--shadow-overlay);
+}
+.device--tablet { width: 822px; }
+.browser-bar { display: flex; align-items: center; gap: 16px; height: 40px; padding: 0 16px; background: var(--surface-3); border-bottom: 1px solid var(--line); }
+.browser-dots { display: flex; gap: 7px; }
+.browser-dots i { width: 12px; height: 12px; border-radius: 50%; background: var(--line-strong); }
+.browser-url {
+  flex: 1; max-width: 520px; height: 26px; margin: 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; border-radius: 8px; background: var(--surface); color: var(--ink-3); font-size: 13px;
+}
+.browser-url .i { width: 14px; height: 14px; }
+.device--desktop .device__viewport { height: 760px; }
+
+/* Длинный экран целиком (без прокрутки) */
+.device--tall .device__screen { height: auto; }
+.device--tall .device__viewport { height: auto; flex: none; }
+.device--tall .screen-root,
+.device--tall .app,
+.device--tall .shell,
+.device--tall .shell__main,
+.device--tall .verify { height: auto; overflow: visible; }
+.device--tall .shell__body { overflow: visible; flex: none; }
+
+/* ---------- Лист документации (дизайн-система, состояния) ---------- */
+.doc { width: 1440px; display: grid; gap: 28px; }
+.doc .screen-root { height: auto; overflow: visible; background: transparent; }
+.doc .app { height: auto; overflow: visible; background: transparent; }
+.doc-section { display: grid; gap: 18px; padding: 28px 32px 32px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.doc-section__head { display: grid; gap: 4px; }
+.doc-section__title { margin: 0; font: 600 22px/1.2 var(--font-display); }
+.doc-section__lead { margin: 0; color: var(--ink-2); font-size: 15px; line-height: 1.5; max-width: 100ch; }
+.doc-grid { display: grid; gap: 16px; }
+.doc-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.doc-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.doc-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.doc-label { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.doc-cell { display: grid; gap: 10px; align-content: start; padding: 16px; border-radius: 12px; background: var(--canvas); border: 1px solid var(--line); min-width: 0; }
+.doc-cell--plain { background: transparent; border: 0; padding: 0; }
+
+.swatches { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
+.swatch { display: grid; gap: 8px; min-width: 0; }
+.swatch__chip { display: grid; grid-template-columns: 1fr 1fr; height: 64px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line-strong); }
+.swatch__chip span { display: block; }
+.swatch__name { font: 600 13px/1.2 var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.swatch__hex { display: flex; justify-content: space-between; gap: 6px; font: 500 11px/1.2 var(--font-mono); color: var(--ink-3); }
+.swatch__role { font-size: 12.5px; line-height: 1.35; color: var(--ink-2); }
+
+.type-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.type-row:last-child { border-bottom: 0; }
+.type-row__spec { font: 500 13px/1.45 var(--font-mono); color: var(--ink-3); }
+.type-row__spec b { color: var(--ink); font-weight: 600; font-family: var(--font-text); }
+
+.dict { width: 100%; border-collapse: collapse; font-size: 14px; }
+.dict th { text-align: left; padding: 8px 12px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); border-bottom: 1px solid var(--line-strong); }
+.dict td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.45; }
+.dict td:first-child { font: 600 13px/1.4 var(--font-mono); white-space: nowrap; }
+.dict tr:last-child td { border-bottom: 0; }
+
+.icons { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 10px; }
+.icons__cell { display: grid; justify-items: center; gap: 8px; padding: 12px 4px; border-radius: 10px; background: var(--canvas); border: 1px solid var(--line); }
+.icons__cell .i { width: 24px; height: 24px; color: var(--ink); }
+.icons__cell span { font: 500 11px/1.2 var(--font-mono); color: var(--ink-3); text-align: center; overflow-wrap: anywhere; }
+
+.scale { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.scale__item { display: grid; justify-items: center; gap: 6px; font: 500 11px/1 var(--font-mono); color: var(--ink-3); }
+.scale__box { background: var(--accent-soft); border: 1px solid var(--accent-line); }
+
+/* ---------- Галерея всех досок (просмотр в браузере) ---------- */
+.gallery { display: grid; gap: 32px; padding: 32px; justify-items: start; }
+.gallery__intro { max-width: 900px; display: grid; gap: 10px; }
+.gallery__intro h1 { margin: 0; font: 600 32px/1.15 var(--font-display); }
+.gallery__intro p { margin: 0; color: var(--ink-2); line-height: 1.55; }
+.gallery__item { border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-2); }

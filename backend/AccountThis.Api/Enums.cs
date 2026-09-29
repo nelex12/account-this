@@ -25,6 +25,8 @@ namespace AccountThis.Api.Models
         GIVE
     }
 
+    // Проверки выполняются в порядке объявления (после VALID), флаг — по первой непройденной.
+    // Строка QR не по формату AT1 флага не получает: запрос /api/sync отклоняется целиком (400).
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum ValidationFlag
     {
@@ -32,6 +34,8 @@ namespace AccountThis.Api.Models
         INVALID_SERVER_SIG,
         INVALID_WORKER_SIG,
         EXPIRED_TOKEN,
-        TIME_DRIFT
+        TIME_DRIFT,
+        UNKNOWN_TOOL,
+        DUPLICATE
     }
 }

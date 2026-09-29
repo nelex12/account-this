@@ -2,18 +2,38 @@
 
 namespace AccountThis.Api.Models;
 
-// components.schemas.OfflineRentalPayload
-// Содержимое QR-кода сотрудника: исходный ServerSignedToken, дополненный фронтендом сотрудника
-// полями Action/ToolCondition/ToolId/ToolName/Timestamp и подписанный целиком WorkerSignature.
-public class OfflineRentalPayload
+// components.schemas.SyncRecord
+// Запись локального журнала завхоза. Строку QR (components.schemas.OfflineRentalPayload,
+// формат "AT1.<token>.<serverSignature>.<op>.<workerSignature>") сервер разбирает сам, строго по правилам
+// формата из описания. Строка не по формату — ошибка конверта: весь запрос отклоняется (400)
+// с перечислением номеров таких записей, ничего не сохраняется.
+public class SyncRecord
 {
     [Required]
-    public ServerSignedToken ServerSignedToken { get; set; } = new();
+    public string? Qr { get; set; }
 
+    // Unix time сканирования по часам завхоза (с поправкой на смещение относительно сервера)
     [Required]
+    public long? ScannedAt { get; set; }
+}
+
+// components.schemas.SyncResult
+public class SyncResult
+{
+    // Для повторно отправленной записи — id уже существующей
+    public int LogId { get; set; }
+
+    public ValidationFlag ValidationFlag { get; set; }
+}
+
+// components.schemas.RentalOperation
+// Содержимое op из строки QR (base64url → UTF-8 JSON) — операция, заявленная и подписанная сотрудником.
+// Разбирается строго (см. описание, «Формат QR и подписей»): десериализация System.Text.Json по умолчанию
+// для этого не подходит — она молча подставляет значения по умолчанию, принимает числа-строки и enum в любом регистре.
+public class RentalOperation
+{
     public RentalAction Action { get; set; }
 
-    [Required]
     public ToolCondition ToolCondition { get; set; }
 
     public int ToolId { get; set; }
@@ -21,15 +41,13 @@ public class OfflineRentalPayload
     public string ToolName { get; set; } = string.Empty;
 
     // Unix time создания QR-кода
-    public int Timestamp { get; set; }
-
-    [Required]
-    public string WorkerSignature { get; set; } = string.Empty;
+    public long Timestamp { get; set; }
 }
 
 // components.schemas.RentalLogEntry
-// ToolId/WorkerId nullable: если ID из payload не резолвится в реальную запись
-// (например, при поддельной подписи), приходит null — недоверие видно по ValidationFlag.
+// Привязка определяется флагом: WorkerId — null при INVALID_SERVER_SIG;
+// ToolId — null при INVALID_SERVER_SIG, INVALID_WORKER_SIG, UNKNOWN_TOOL.
+// WorkerName/ToolName — из users/tools, если Id заполнен, иначе из непроверенных значений внутри строки QR.
 public class RentalLogEntry
 {
     public int Id { get; set; }
@@ -48,9 +66,14 @@ public class RentalLogEntry
 
     public ToolCondition ToolCondition { get; set; }
 
-    public int QrTimestamp { get; set; }
+    // Время операции (timestamp из op)
+    public long QrTimestamp { get; set; }
+
+    // Время сканирования завхозом
+    public long ScannedAt { get; set; }
 
     public ValidationFlag ValidationFlag { get; set; }
 
-    public DateTime CreatedAt { get; set; }
+    // Unix time сохранения на сервере (синхронизации)
+    public long CreatedAt { get; set; }
 }

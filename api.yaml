@@ -1,0 +1,1062 @@
+openapi: 3.0.3
+info:
+  title: API Системы учета и выдачи инструментов
+  description: |
+    Спецификация REST API для синхронизации, авторизации и управления реестром оборудования с проверкой Ed25519 подписей оффлайн.
+    Подробная логика — в документе «Описание проекта подробно, используемое в разработке».
+
+    ## Время
+    Все метки времени в API и в протоколе QR — Unix time в секундах (UTC, int64); от часового пояса не зависят.
+    Клиенты работают по времени сервера: `serverTime` из `/api/auth/server-key` и `/api/auth/worker-cert`
+    задаёт смещение локальных часов.
+
+    ## Авторизация
+    JWT передаётся в заголовке `Authorization: Bearer <accessToken>`. Срок действия — 12 часов.
+    Содержит id пользователя (claim `sub`) и роль (claim `role`); подписан HMAC-SHA256 (секрет `JWT_SIGNING_KEY`).
+    Отзыва нет: после увольнения выданный JWT действует до истечения срока.
+
+    ## Телефон
+    Российский номер. На входе (регистрация, вход) допускаются префиксы `+7`, `7` или `8`, затем ровно 10 цифр;
+    между ними — пробелы, скобки, дефисы: `+7 (999) 123-45-67`, `89991234567`. Сервер приводит номер к виду
+    `+7XXXXXXXXXX` и дальше работает только с ним: хранение, проверка уникальности, вход, ответы API.
+    Другой формат — 400.
+
+    ## Формат QR и подписей
+    Ed25519 (RFC 8032); ключи и подписи — сырые байты в base64url без паддинга.
+    Строка QR сотрудника: `AT1.<token>.<serverSignature>.<op>.<workerSignature>` (схема OfflineRentalPayload,
+    там же правила строгого разбора).
+
+    ## Ошибки
+    - **400** — тело ValidationProblemDetails (`application/problem+json`). Ключи `errors` — путь к полю
+      в именах JSON: `fullName`, `[3].qr` (элемент массива, нумерация с 0), `id`, `action` (параметры пути и запроса).
+      Если тело не удалось разобрать как JSON нужной формы, ключ — JSON-путь (`$`, `$.role`, `$[3].scannedAt`)
+      и ошибка про само тело (ключ — имя параметра метода, например `request` или `records`).
+    - **401 / 403 от проверки JWT и роли** (до контроллера) — без тела; у 401 заголовок `WWW-Authenticate: Bearer`.
+    - **401 / 403 / 404 / 409 от контроллера** (бизнес-проверки) — тело ProblemDetails (`application/problem+json`),
+      `detail` — понятное пользователю пояснение на русском.
+    - Во всех ProblemDetails есть `traceId` — идентификатор запроса для поиска в логах сервера.
+  version: 2.3.0
+
+servers:
+  - url: http://localhost
+    description: Через nginx (полный стек, start-all.bat)
+  - url: http://localhost:5000
+    description: Backend напрямую (Docker, порт BACKEND_PORT)
+
+tags:
+  - name: Auth
+    description: Регистрация, вход, ключ сервера и сертификаты сотрудников
+  - name: Users
+    description: Управление пользователями (Owner)
+  - name: Tools
+    description: Реестр инструментов
+  - name: Sync
+    description: Синхронизация оффлайн-журнала завхоза и просмотр журнала операций
+
+paths:
+
+  # ==========================================
+  # АВТОРИЗАЦИЯ И КЛЮЧИ
+  # ==========================================
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      operationId: Register
+      summary: Регистрация нового пользователя
+      description: |
+        Создает аккаунт со статусом is_approved = false, is_active = true (требуется подтверждение Owner).
+        Телефон нормализуется к `+7XXXXXXXXXX` и уникален среди всех пользователей, включая уволенных:
+        `89991234567` и `+7 (999) 123-45-67` — один и тот же номер. Без авторизации.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Аккаунт зарегистрирован и ожидает подтверждения (без тела)
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Пользователь с таким телефоном уже существует
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://tools.ietf.org/html/rfc9110#section-15.5.10
+                title: Conflict
+                status: 409
+                detail: Пользователь с таким телефоном уже существует
+                traceId: 00-2f1c...-01
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      operationId: Login
+      summary: Вход в систему
+      description: |
+        Возвращает JWT (срок действия 12 часов). Вход разрешён только при is_approved = true и is_active = true.
+        Телефон перед поиском нормализуется так же, как при регистрации. Без авторизации.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешная авторизация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Неверный телефон или пароль
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://tools.ietf.org/html/rfc9110#section-15.5.2
+                title: Unauthorized
+                status: 401
+                detail: Неверный телефон или пароль
+                traceId: 00-2f1c...-01
+        '403':
+          description: Аккаунт не подтверждён (is_approved = false) или уволен (is_active = false)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://tools.ietf.org/html/rfc9110#section-15.5.4
+                title: Forbidden
+                status: 403
+                detail: Аккаунт ещё не подтверждён владельцем
+                traceId: 00-2f1c...-01
+
+  /api/auth/server-key:
+    get:
+      tags: [Auth]
+      operationId: GetServerKey
+      summary: Получение публичного ключа сервера
+      description: |
+        Используется завхозом для верификации сертификатов сотрудников в оффлайне. Публичный ключ, без авторизации.
+        Возвращает также serverTime — по нему клиент вычисляет смещение своих часов относительно сервера.
+      responses:
+        '200':
+          description: Публичный ключ Ed25519 сервера и текущее время сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerKeyResponse'
+
+  /api/auth/worker-cert:
+    get:
+      tags: [Auth]
+      operationId: GetWorkerCert
+      summary: Выдача сертификата и временного ключа сотруднику
+      description: |
+        Сервер генерирует временную пару ключей Ed25519, формирует токен ServerSignedToken
+        (workerId, fio, issuedAt, expiresAt = issuedAt + 12 часов, workerPublicKey), подписывает его своим
+        приватным ключом и отдаёт сотруднику вместе с временным приватным ключом. Приватный ключ сервером
+        не сохраняется. Выдаётся только при is_approved = true и is_active = true (проверяется по БД в момент запроса).
+
+        **Требуется роль:** Worker.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Сертификат (token + serverSignature), временный приватный ключ и время сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerCertificate'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: |
+            Роль не Worker — без тела (проверка JWT, как у Forbidden);
+            аккаунт не подтверждён или уволен (is_approved = false или is_active = false, проверка по БД в момент
+            запроса) — тело ProblemDetails.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://tools.ietf.org/html/rfc9110#section-15.5.4
+                title: Forbidden
+                status: 403
+                detail: Сотрудник уволен, сертификат не выдаётся
+                traceId: 00-2f1c...-01
+
+  # ==========================================
+  # УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ
+  # ==========================================
+  /api/users:
+    get:
+      tags: [Users]
+      operationId: GetUsers
+      summary: Список пользователей
+      description: "**Требуется роль:** Owner."
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Список всех пользователей (включая неподтверждённых и уволенных)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/users/{id}:
+    delete:
+      tags: [Users]
+      operationId: DeactivateUser
+      summary: Уволить/Деактивировать пользователя
+      description: |
+        Переводит is_active = false; запись не удаляется (на неё ссылается журнал). Повторный вызов — 200.
+        Уже выданные JWT и сертификаты не отзываются и действуют до истечения срока (не более 12 часов).
+        Owner не может уволить сам себя.
+
+        **Требуется роль:** Owner.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Пользователь уволен (is_active = false), без тела
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Попытка уволить самого себя
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://tools.ietf.org/html/rfc9110#section-15.5.10
+                title: Conflict
+                status: 409
+                detail: Нельзя уволить самого себя
+                traceId: 00-2f1c...-01
+
+  /api/users/{id}/approve:
+    post:
+      tags: [Users]
+      operationId: ApproveUser
+      summary: Подтверждение регистрации пользователя
+      description: |
+        Переводит is_approved = true. Повторный вызов — 200.
+
+        **Требуется роль:** Owner.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Пользователь подтверждён, без тела
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==========================================
+  # УПРАВЛЕНИЕ ИНСТРУМЕНТАМИ
+  # ==========================================
+  /api/tools:
+    get:
+      tags: [Tools]
+      operationId: GetTools
+      summary: Получение реестра инструментов
+      description: |
+        Возвращает список активных (не списанных) инструментов вместе с текущим держателем —
+        локальный реестр завхоза и печать QR-кодов.
+
+        **Требуется роль:** Issuer, Owner.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Список инструментов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tool'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Tools]
+      operationId: CreateTool
+      summary: Добавление нового инструмента
+      description: |
+        id присваивается базой данных и возвращается в ответе — по нему завхоз печатает QR-код инструмента.
+        Новый инструмент создаётся в состоянии Good, без комментария и без держателя.
+        Название — не длиннее 100 символов (попадает в QR сотрудника).
+
+        **Требуется роль:** Issuer, Owner.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateToolRequest'
+      responses:
+        '201':
+          description: Инструмент создан, ему присвоен id
+          headers:
+            Location:
+              description: Адрес созданного инструмента, `/api/tools/{id}`
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tool'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/tools/{id}:
+    get:
+      tags: [Tools]
+      operationId: GetTool
+      summary: Данные инструмента
+      description: |
+        Возвращает инструмент, в том числе списанный.
+
+        **Требуется роль:** Issuer, Owner.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Информация об инструменте
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tool'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Tools]
+      operationId: UpdateToolCondition
+      summary: Частичное обновление состояния инструмента
+      description: |
+        Ручное вмешательство вне цикла выдачи/возврата (заметили повреждение, инструмент отремонтирован).
+        Обычный путь обновления `condition` — VALID-запись в `/api/sync`.
+
+        Поле, которое не передано (или null), не меняется; `comment: ""` очищает комментарий.
+        Изменение `condition` выставляет время изменения состояния в текущее время сервера — после этого
+        более ранние операции из поздних синхронизаций состояние не перезаписывают.
+        Разрешено и для списанного инструмента (is_active не меняется).
+
+        **Требуется роль:** Issuer, Owner.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateToolConditionRequest'
+      responses:
+        '200':
+          description: Состояние успешно обновлено, без тела
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Tools]
+      operationId: DeleteTool
+      summary: Списание инструмента
+      description: |
+        Переводит is_active = false. Необратимое действие. Повторный вызов — 200.
+        Списанный инструмент не попадает в GET /api/tools, но остаётся в GET /api/tools/{id} и в журнале.
+
+        **Требуется роль:** Owner.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Инструмент списан, без тела
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==========================================
+  # СИНХРОНИЗАЦИЯ И ЖУРНАЛ (LOGS)
+  # ==========================================
+  /api/sync:
+    post:
+      tags: [Sync]
+      operationId: Sync
+      summary: Синхронизация оффлайн-выдач и возвратов
+      description: |
+        Завхоз отправляет массив записей своего локального журнала: строка QR сотрудника как есть
+        и время сканирования. Сервер сам строго разбирает каждую строку по формату AT1 (см. OfflineRentalPayload),
+        проверяет обе подписи, время, инструмент и повтор, и сохраняет **каждую** запись в журнал независимо
+        от результата этих проверок — результат пишется в validationFlag (по первой непройденной проверке,
+        порядок — см. схему ValidationFlag).
+
+        Строка `qr` не по формату AT1 — ошибка конверта, как и неверное тело запроса: честный клиент завхоза
+        такую строку не примет при оффлайн-проверке. Запрос целиком отклоняется (400), ничего не сохраняется.
+
+        issuer_id записи берётся из JWT вызывающего.
+
+        **Идемпотентность:** запись с тем же issuer_id, scannedAt и той же строкой qr, уже сохранённая
+        ранее (повторная отправка после обрыва связи), повторно не создаётся — в ответе возвращается существующая.
+
+        При флаге VALID сервер обновляет `tools.condition` значением `toolCondition`, если время операции
+        (timestamp) не раньше последнего изменения состояния инструмента (>=).
+
+        Пустой массив допустим — ответ `[]`.
+
+        **Требуется роль:** Issuer.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/SyncRecord'
+      responses:
+        '200':
+          description: Все записи сохранены; результаты в порядке записей запроса
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SyncResult'
+              example:
+                - logId: 41
+                  validationFlag: VALID
+                - logId: 42
+                  validationFlag: TIME_DRIFT
+        '400':
+          description: |
+            Тело запроса не является массивом объектов SyncRecord, либо хотя бы одна строка `qr` не соответствует
+            формату AT1. Ничего не сохраняется. Для записей с неверным форматом ключ ошибки — номер записи
+            в массиве (с 0): `"[3].qr"`. По этим номерам клиент завхоза откладывает такие записи (локально,
+            для разбора) и отправляет остальные повторно, чтобы одна запись не блокировала синхронизацию всей очереди.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblemDetails'
+              example:
+                type: https://tools.ietf.org/html/rfc9110#section-15.5.1
+                title: One or more validation errors occurred.
+                status: 400
+                errors:
+                  '[3].qr': ['Строка не соответствует формату AT1: workerSignature должна быть 64 байта']
+                  '[7].qr': ['Строка не соответствует формату AT1: ожидается 5 частей через точку']
+                traceId: 00-2f1c...-01
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/logs:
+    get:
+      tags: [Sync]
+      operationId: GetLogs
+      summary: Просмотр журнала движения инструментов
+      description: |
+        Возвращает записи rental_logs, новые сверху: по убыванию времени операции (qrTimestamp), затем по убыванию id.
+        Записи со всеми флагами, не только VALID.
+
+        **Требуется роль:** Issuer, Owner.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: action
+          in: query
+          required: false
+          description: Фильтр по типу операции
+          schema:
+            $ref: '#/components/schemas/RentalAction'
+        - name: toolId
+          in: query
+          required: false
+          description: Фильтр по инструменту (записи с toolId = null в выборку не попадают)
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: История операций
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RentalLogEntry'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT из POST /api/auth/login, срок действия 12 часов
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      description: id объекта; нецелое значение — 400
+      schema:
+        type: integer
+        format: int32
+
+  responses:
+    ValidationError:
+      description: |
+        Некорректный запрос: тело не разбирается как JSON нужной формы, нарушены обязательность или ограничения полей,
+        неверный параметр пути или запроса. Ключи `errors` — пути к полям в именах JSON.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ValidationProblemDetails'
+          example:
+            type: https://tools.ietf.org/html/rfc9110#section-15.5.1
+            title: One or more validation errors occurred.
+            status: 400
+            errors:
+              fullName: ['The field FullName must be a string or array type with a maximum length of ''100''.']
+              role: ['The Role field is required.']
+            traceId: 00-2f1c...-01
+    Unauthorized:
+      description: Не передан, просрочен или недействителен JWT. Без тела; заголовок `WWW-Authenticate` со схемой Bearer
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+          example: Bearer error="invalid_token", error_description="The token expired at '...'"
+    Forbidden:
+      description: |
+        Роль пользователя не допускается к этому эндпоинту. Без тела.
+        Увольнение уже выданный JWT не отзывает (см. раздел «Авторизация»).
+    NotFound:
+      description: Объект с таким id не найден
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://tools.ietf.org/html/rfc9110#section-15.5.5
+            title: Not Found
+            status: 404
+            detail: Инструмент с id 17 не найден
+            traceId: 00-2f1c...-01
+
+  schemas:
+    # ---------- Ошибки (RFC 9457 / 7807) ----------
+
+    ProblemDetails:
+      type: object
+      description: |
+        Описание ошибки в формате RFC 9457 (ранее RFC 7807), `application/problem+json`.
+        Формирует ASP.NET Core; допускает дополнительные поля.
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          description: URI типа ошибки (для стандартных кодов — ссылка на раздел RFC 9110)
+          example: https://tools.ietf.org/html/rfc9110#section-15.5.5
+        title:
+          type: string
+          description: Краткое название типа ошибки (стандартное, на английском)
+          example: Not Found
+        status:
+          type: integer
+          format: int32
+          description: HTTP-код ответа
+          example: 404
+        detail:
+          type: string
+          nullable: true
+          description: Пояснение к конкретному случаю на русском, для показа пользователю
+          example: Инструмент с id 17 не найден
+        instance:
+          type: string
+          nullable: true
+          description: URI конкретного случая ошибки (обычно не заполняется)
+        traceId:
+          type: string
+          description: Идентификатор запроса для поиска в логах сервера
+          example: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00
+      additionalProperties: true
+
+    ValidationProblemDetails:
+      description: ProblemDetails с перечнем ошибок по полям (ответ 400)
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          required: [errors]
+          properties:
+            errors:
+              type: object
+              description: |
+                Ключ — путь к полю в именах JSON (`fullName`, `[3].qr`, `id`) или JSON-путь при ошибке разбора
+                (`$.role`); значение — список сообщений об ошибках.
+              additionalProperties:
+                type: array
+                items:
+                  type: string
+              example:
+                '[3].qr': ['Строка не соответствует формату AT1: ожидается 5 частей через точку']
+
+    # ---------- Перечисления ----------
+
+    UserRole:
+      type: string
+      description: Worker — сотрудник, Issuer — завхоз, Owner — владелец
+      enum: [Worker, Issuer, Owner]
+
+    ToolCondition:
+      type: string
+      description: Состояние инструмента, по возрастанию тяжести (Good < Damaged < Broken)
+      enum: [Good, Damaged, Broken]
+
+    RentalAction:
+      type: string
+      description: TAKE — сотрудник берёт инструмент, GIVE — возвращает
+      enum: [TAKE, GIVE]
+
+    ValidationFlag:
+      type: string
+      description: |
+        Результат серверной проверки записи журнала. Строка QR к этому моменту уже разобрана по формату AT1
+        (иначе весь запрос /api/sync отклоняется с 400). Проверки выполняются в указанном порядке,
+        флаг — по первой непройденной:
+        - INVALID_SERVER_SIG — подпись сервера на токене невалидна;
+        - INVALID_WORKER_SIG — подпись работника невалидна;
+        - EXPIRED_TOKEN — timestamp вне интервала [issuedAt, expiresAt];
+        - TIME_DRIFT — |timestamp − scannedAt| > 60 с, либо timestamp или scannedAt позже момента приёма сервером более чем на 5 минут;
+        - UNKNOWN_TOOL — toolId отсутствует в реестре;
+        - DUPLICATE — VALID-запись с такой же workerSignature уже есть в журнале (повторное использование QR);
+          записи с другими флагами не в счёт, поэтому на один QR приходится не более одной VALID-записи;
+        - VALID — все проверки пройдены.
+      enum: [VALID, INVALID_SERVER_SIG, INVALID_WORKER_SIG, EXPIRED_TOKEN, TIME_DRIFT, UNKNOWN_TOOL, DUPLICATE]
+
+    # ---------- Запросы и ответы ----------
+
+    RegisterRequest:
+      type: object
+      required: [fullName, phone, password, role]
+      properties:
+        fullName:
+          type: string
+          maxLength: 100
+          description: ФИО. Попадает в QR сотрудника (fio в token), поэтому ограничено 100 символами
+          example: "Иванов Иван Иванович"
+        phone:
+          type: string
+          pattern: '^[\s()-]*(\+7|7|8)(?:[\s()-]*[0-9]){10}[\s()-]*$'
+          description: |
+            Телефон — логин. Любой допустимый формат (см. раздел «Телефон»); сохраняется как `+7XXXXXXXXXX`.
+            Уникален среди всех пользователей, включая уволенных
+          example: "+7 (999) 123-45-67"
+        password:
+          type: string
+          format: password
+          example: "securePassword123"
+        role:
+          $ref: '#/components/schemas/UserRole'
+
+    LoginRequest:
+      type: object
+      required: [phone, password]
+      properties:
+        phone:
+          type: string
+          pattern: '^[\s()-]*(\+7|7|8)(?:[\s()-]*[0-9]){10}[\s()-]*$'
+          description: Любой допустимый формат (см. раздел «Телефон»); перед поиском нормализуется
+          example: "89991234567"
+        password:
+          type: string
+          format: password
+          example: "securePassword123"
+
+    LoginResponse:
+      type: object
+      required: [accessToken]
+      properties:
+        accessToken:
+          type: string
+          description: "JWT, срок действия 12 часов; передаётся в заголовке `Authorization: Bearer <accessToken>`"
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1Iiwicm9sZSI6Iklzc3VlciJ9.c2lnbmF0dXJl
+
+    ServerKeyResponse:
+      type: object
+      required: [serverPublicKey, serverTime]
+      properties:
+        serverPublicKey:
+          type: string
+          description: Публичный ключ Ed25519 сервера, 32 байта, base64url без паддинга (43 символа)
+          example: 11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo
+        serverTime:
+          type: integer
+          format: int64
+          description: Текущее время сервера (Unix time) — для вычисления смещения часов клиента
+          example: 1790000000
+
+    CreateToolRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          description: Название. Попадает в QR сотрудника (toolName в op), поэтому ограничено 100 символами
+          example: "Дрель Bosch GSB 16 RE"
+
+    UpdateToolConditionRequest:
+      type: object
+      description: Не переданное (или null) поле не меняется; comment = "" очищает комментарий.
+      properties:
+        condition:
+          allOf:
+            - $ref: '#/components/schemas/ToolCondition'
+          nullable: true
+          description: Новое состояние; меняет и время изменения состояния (текущее время сервера)
+        comment:
+          type: string
+          nullable: true
+          description: Новый комментарий; "" — очистить
+      example:
+        condition: Damaged
+        comment: Трещина на корпусе
+
+    WorkerCertificate:
+      type: object
+      description: |
+        Временный сертификат и ключ, которые работник получает, пока есть интернет.
+        Сертификат — это пара token + serverSignature. Содержимое token — ServerSignedToken
+        (клиент декодирует base64url → JSON). Для подписи операций token и serverSignature
+        используются как строки, в точности как получены.
+      required: [token, serverSignature, temporaryPrivateKey, serverTime]
+      properties:
+        token:
+          type: string
+          description: base64url(UTF-8 JSON ServerSignedToken)
+        serverSignature:
+          type: string
+          description: base64url(Ed25519(ключ сервера, ASCII "AT1-TOKEN." + token)), 64 байта (86 символов)
+        temporaryPrivateKey:
+          type: string
+          description: |
+            Временный приватный ключ Ed25519 (32-байтный seed), base64url без паддинга (43 символа).
+            В WebCrypto импортируется как JWK { kty: "OKP", crv: "Ed25519", d: temporaryPrivateKey, x: workerPublicKey из token }.
+        serverTime:
+          type: integer
+          format: int64
+          description: Текущее время сервера (Unix time) — для вычисления смещения часов клиента
+          example: 1790000000
+
+    SyncRecord:
+      type: object
+      description: Запись локального журнала завхоза
+      required: [qr, scannedAt]
+      properties:
+        qr:
+          $ref: '#/components/schemas/OfflineRentalPayload'
+        scannedAt:
+          type: integer
+          format: int64
+          description: Время сканирования по часам завхоза с поправкой на смещение относительно сервера (Unix time). Не подписывается — за него отвечает завхоз (issuer_id).
+          example: 1790003605
+
+    SyncResult:
+      type: object
+      required: [logId, validationFlag]
+      properties:
+        logId:
+          type: integer
+          format: int32
+          description: id записи в журнале (для повторно отправленной записи — id уже существующей)
+          example: 41
+        validationFlag:
+          $ref: '#/components/schemas/ValidationFlag'
+
+    # ---------- Основные модели ----------
+
+    UserResponse:
+      type: object
+      required: [id, fullName, phone, role, isApproved, isActive]
+      properties:
+        id:
+          type: integer
+          format: int32
+          example: 5
+        fullName:
+          type: string
+          example: "Иванов Иван Иванович"
+        phone:
+          type: string
+          pattern: '^\+7[0-9]{10}$'
+          description: Нормализованный номер
+          example: "+79991234567"
+        role:
+          $ref: '#/components/schemas/UserRole'
+        isApproved:
+          type: boolean
+          description: Регистрация подтверждена Owner
+        isActive:
+          type: boolean
+          description: false — уволен (запись не удаляется)
+
+    Tool:
+      type: object
+      description: |
+        Держатель (holderId, holderName, heldSince) вычисляется сервером по последней по времени операции
+        VALID-записи журнала (view tool_current_holders): если это TAKE — инструмент на руках у сотрудника,
+        если GIVE или записей нет — на месте у завхоза, и все три поля равны null.
+        Учитываются только синхронизированные записи.
+      required: [id, name, condition, comment, isActive, holderId, holderName, heldSince]
+      properties:
+        id:
+          type: integer
+          format: int32
+          description: Присваивается базой данных; по нему печатается QR инструмента
+          example: 17
+        name:
+          type: string
+          example: "Дрель Bosch GSB 16 RE"
+        condition:
+          $ref: '#/components/schemas/ToolCondition'
+        comment:
+          type: string
+          nullable: true
+          description: Комментарий (ставится только через PATCH)
+          example: null
+        isActive:
+          type: boolean
+          description: false — списан (необратимо)
+        holderId:
+          type: integer
+          format: int32
+          nullable: true
+          description: id сотрудника, у которого инструмент на руках; null — инструмент на месте у завхоза
+          example: 5
+        holderName:
+          type: string
+          nullable: true
+          description: ФИО сотрудника-держателя (из users)
+          example: "Иванов Иван Иванович"
+        heldSince:
+          type: integer
+          format: int64
+          nullable: true
+          description: Время операции TAKE, с которой инструмент у держателя (Unix time)
+          example: 1790003600
+
+    # ---------- Содержимое QR сотрудника ----------
+
+    OfflineRentalPayload:
+      type: string
+      description: |
+        Строка QR-кода сотрудника (и для взятия, и для возврата), ASCII, пять частей через точку:
+        `AT1.<token>.<serverSignature>.<op>.<workerSignature>`
+        - token, serverSignature — сертификат из WorkerCertificate, без изменений;
+        - op = base64url(UTF-8 JSON RentalOperation);
+        - workerSignature = base64url(Ed25519(временный приватный ключ, ASCII "AT1-OP." + token + "." + serverSignature + "." + op)).
+
+        Подписываются готовые строки, а не объекты: подпись проверяется над строками token и op в том виде,
+        в каком они пришли, JSON заново не сериализуется, поэтому порядок полей и пробелы значения не имеют.
+
+        **Строгий разбор** (одинаково у завхоза оффлайн и на сервере; нарушение любого правила — строка
+        не по формату, сервер отвечает на /api/sync 400):
+        - ровно пять частей через точку, первая — `AT1`;
+        - части 2–5 — base64url без паддинга: только символы `A–Z a–z 0–9 - _`, без `=`;
+        - serverSignature и workerSignature — 64 байта, workerPublicKey — 32 байта;
+        - token и op — UTF-8 JSON-объекты; все поля схем ServerSignedToken и RentalOperation обязательны,
+          лишние поля игнорируются;
+        - строки — JSON-строки (не null); целые — JSON-числа (не строки, без дробной части), workerId и toolId > 0;
+        - action и toolCondition — строго значения enum с учётом регистра (`TAKE`, но не `take` и не `0`).
+
+        Типичная длина — 500–700 символов.
+      example: "AT1.eyJ3b3JrZXJJZCI6NX0.c2lnbmF0dXJl.eyJhY3Rpb24iOiJUQUtFIn0.c2lnbmF0dXJl"
+
+    ServerSignedToken:
+      type: object
+      description: |
+        Содержимое token (после base64url-декодирования — UTF-8 JSON). Сервер удостоверяет подписью,
+        что публичный ключ workerPublicKey принадлежит сотруднику workerId до момента expiresAt.
+        Не является непрозрачным блобом: клиент завхоза читает поля для оффлайн-проверки.
+      required: [workerId, fio, issuedAt, expiresAt, workerPublicKey]
+      properties:
+        workerId:
+          type: integer
+          format: int32
+          minimum: 1
+          description: ID пользователя в таблице users — связывает операцию с конкретным сотрудником (ФИО не уникально).
+          example: 5
+        fio:
+          type: string
+          description: ФИО сотрудника на момент выдачи сертификата
+          example: "Иванов Иван Иванович"
+        issuedAt:
+          type: integer
+          format: int64
+          description: Unix time выдачи сертификата
+          example: 1790000000
+        expiresAt:
+          type: integer
+          format: int64
+          description: Unix time истечения срока действия (issuedAt + 12 часов)
+          example: 1790043200
+        workerPublicKey:
+          type: string
+          description: Временный публичный ключ Ed25519 сотрудника, 32 байта, base64url без паддинга
+          example: 11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo
+
+    RentalOperation:
+      type: object
+      description: Содержимое op (после base64url-декодирования — UTF-8 JSON) — операция, заявленная сотрудником.
+      required: [action, toolCondition, toolId, toolName, timestamp]
+      properties:
+        action:
+          $ref: '#/components/schemas/RentalAction'
+        toolCondition:
+          $ref: '#/components/schemas/ToolCondition'
+        toolId:
+          type: integer
+          format: int32
+          minimum: 1
+          description: id инструмента из его QR-наклейки
+          example: 17
+        toolName:
+          type: string
+          description: Название из QR-наклейки инструмента (сервер с реестром не сверяет)
+          example: "Дрель Bosch GSB 16 RE"
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix time создания QR-кода (по часам сотрудника с поправкой на смещение относительно сервера)
+          example: 1790003600
+
+    RentalLogEntry:
+      type: object
+      description: |
+        Запись в неизменяемом журнале операций. Привязка определяется флагом:
+        - workerId — null при INVALID_SERVER_SIG (поддельный токен не приписывает операцию сотруднику),
+          иначе id из токена;
+        - toolId — null при INVALID_SERVER_SIG, INVALID_WORKER_SIG, UNKNOWN_TOOL, иначе toolId из операции;
+        - workerName/toolName берутся из users/tools, если workerId/toolId заполнены, иначе — из заявленных
+          непроверенных значений внутри строки QR (fio, toolName).
+      required: [id, toolId, toolName, workerId, workerName, issuerId, action, toolCondition, qrTimestamp, scannedAt, validationFlag, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int32
+          example: 41
+        toolId:
+          type: integer
+          format: int32
+          nullable: true
+          example: 17
+        toolName:
+          type: string
+          example: "Дрель Bosch GSB 16 RE"
+        workerId:
+          type: integer
+          format: int32
+          nullable: true
+          example: 5
+        workerName:
+          type: string
+          example: "Иванов Иван Иванович"
+        issuerId:
+          type: integer
+          format: int32
+          description: id завхоза, синхронизировавшего запись (из его JWT)
+          example: 2
+        action:
+          $ref: '#/components/schemas/RentalAction'
+        toolCondition:
+          $ref: '#/components/schemas/ToolCondition'
+        qrTimestamp:
+          type: integer
+          format: int64
+          description: timestamp из операции (время операции)
+          example: 1790003600
+        scannedAt:
+          type: integer
+          format: int64
+          description: Время сканирования завхозом
+          example: 1790003605
+        validationFlag:
+          $ref: '#/components/schemas/ValidationFlag'
+        createdAt:
+          type: integer
+          format: int64
+          description: Время сохранения записи на сервере (синхронизации), Unix time
+          example: 1790010000

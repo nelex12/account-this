@@ -3,10 +3,11 @@
     "AccountThis.Api": {
       "commandName": "Project",
       "launchBrowser": true,
+      "launchUrl": "swagger",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "applicationUrl": "https://localhost:63633;http://localhost:63634"
+      "applicationUrl": "http://localhost:5000"
     }
   }
 }

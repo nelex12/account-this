@@ -1,16 +1,21 @@
-using Microsoft.AspNetCore.Http.HttpResults;
+using AccountThis.Api.Configuration;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// При запуске из IDE (Development) подхватываем общий .env из корня репозитория.
+// В Docker переменные передаёт docker-compose.yml.
+if (builder.Environment.IsDevelopment())
+{
+    builder.Configuration.AddDotEnvFile(builder.Environment.ContentRootPath);
+}
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Строка подключения приходит из переменной окружения ConnectionStrings__Default
-// (см. docker-compose.yml). Без миграций, БД уже существует
-var connectionString = builder.Configuration.GetConnectionString("Default")
-    ?? throw new InvalidOperationException("Connection string 'Default' is not configured.");
+// Строка подключения собирается из POSTGRES_* (см. DatabaseConfiguration). Без миграций, БД уже существует
+var connectionString = DatabaseConfiguration.BuildConnectionString(builder.Configuration);
 
 var dataSource = new NpgsqlDataSourceBuilder(connectionString).Build();
 builder.Services.AddSingleton(dataSource);
