@@ -10,6 +10,13 @@ public static class PhoneFormat
     public const string InputPattern = @"^[\s()-]*(\+7|7|8)(?:[\s()-]*[0-9]){10}[\s()-]*$";
 
     public const string ErrorMessage = "Телефон должен быть российским номером: +7XXXXXXXXXX, 8XXXXXXXXXX или 7XXXXXXXXXX";
+
+    // Вход уже проверен по InputPattern: ровно 11 цифр, первая — 7 или 8
+    public static string Normalize(string phone)
+    {
+        var digits = new string(phone.Where(char.IsAsciiDigit).ToArray());
+        return "+7" + digits[1..];
+    }
 }
 
 // components.schemas.RegisterRequest

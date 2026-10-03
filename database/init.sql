@@ -39,7 +39,7 @@ CREATE TABLE users (
     is_approved     BOOLEAN NOT NULL DEFAULT FALSE,
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,   -- FALSE = уволен; запись не удаляется
 
-    created_at      BIGINT NOT NULL DEFAULT extract(epoch FROM now())::BIGINT   -- Unix time регистрации
+    created_at      BIGINT NOT NULL DEFAULT floor(extract(epoch FROM now()))::BIGINT   -- Unix time регистрации
 );
 
 -- Сертификаты (token + serverSignature) отдельной таблицей не хранятся:
@@ -58,11 +58,11 @@ CREATE TABLE tools (
     -- qr_timestamp VALID-записи из /api/sync или время сервера при PATCH.
     -- Запись из /api/sync обновляет condition, только если её qr_timestamp не раньше этого значения (>=),
     -- поэтому поздно синхронизированная старая операция не перезапишет более свежее состояние.
-    condition_updated_at BIGINT NOT NULL DEFAULT extract(epoch FROM now())::BIGINT,
+    condition_updated_at BIGINT NOT NULL DEFAULT floor(extract(epoch FROM now()))::BIGINT,
 
     is_active   BOOLEAN NOT NULL DEFAULT TRUE,        -- FALSE = списан, необратимо
 
-    created_at  BIGINT NOT NULL DEFAULT extract(epoch FROM now())::BIGINT       -- Unix time добавления в реестр
+    created_at  BIGINT NOT NULL DEFAULT floor(extract(epoch FROM now()))::BIGINT       -- Unix time добавления в реестр
 );
 
 -- ---------- ЖУРНАЛ ОПЕРАЦИЙ (неизменяемый) ----------
@@ -91,7 +91,7 @@ CREATE TABLE rental_logs (
 
     validation_flag   validation_flag NOT NULL,
 
-    created_at        BIGINT NOT NULL DEFAULT extract(epoch FROM now())::BIGINT  -- Unix time синхронизации с сервером
+    created_at        BIGINT NOT NULL DEFAULT floor(extract(epoch FROM now()))::BIGINT  -- Unix time синхронизации с сервером
 );
 
 -- Идемпотентность /api/sync: повторная отправка той же записи тем же завхозом не создаёт новую строку.

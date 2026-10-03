@@ -1,4 +1,6 @@
 ﻿using AccountThis.Api.Models;
+using AccountThis.Api.Security;
+using AccountThis.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -6,7 +8,7 @@ namespace AccountThis.Api.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-public class AuthController : ControllerBase
+public class AuthController(IAuthService authService) : ControllerBase
 {
     /// <summary>
     /// Регистрация нового пользователя. Создаёт аккаунт со статусом is_approved = false.
@@ -17,9 +19,17 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
-    public IActionResult Register([FromBody] RegisterRequest request)
+    public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var status = await authService.RegisterAsync(request, cancellationToken);
+        return status switch
+        {
+            RegisterStatus.Created => StatusCode(StatusCodes.Status201Created),
+            RegisterStatus.PhoneTaken => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                detail: "Пользователь с таким телефоном уже существует"),
+            _ => throw new InvalidOperationException($"Неизвестный результат регистрации: {status}"),
+        };
     }
 
     /// <summary>
@@ -30,12 +40,26 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
-    // 401/403 возвращает сам метод (Unauthorized(), Problem(statusCode: 403)) — с телом ProblemDetails
+    // 401/403 возвращает сам метод через Problem(...) — с телом ProblemDetails
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
-    public ActionResult<LoginResponse> Login([FromBody] LoginRequest request)
+    public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var result = await authService.LoginAsync(request, cancellationToken);
+        return result.Status switch
+        {
+            LoginStatus.Success => new LoginResponse { AccessToken = result.AccessToken! },
+            LoginStatus.InvalidCredentials => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                detail: "Неверный телефон или пароль"),
+            LoginStatus.NotApproved => Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                detail: "Аккаунт ещё не подтверждён владельцем"),
+            LoginStatus.Deactivated => Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                detail: "Аккаунт деактивирован"),
+            _ => throw new InvalidOperationException($"Неизвестный результат входа: {result.Status}"),
+        };
     }
 
     /// <summary>
@@ -45,7 +69,7 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public ActionResult<ServerKeyResponse> GetServerKey()
     {
-        throw new NotImplementedException();
+        return authService.GetServerKey();
     }
 
     /// <summary>
@@ -57,8 +81,19 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     // 401 и 403 по роли отдаёт проверка JWT без тела; 403 по is_approved/is_active (проверка по БД) — ProblemDetails
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
-    public ActionResult<WorkerCertificate> GetWorkerCert()
+    public async Task<ActionResult<WorkerCertificate>> GetWorkerCert(CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var result = await authService.IssueWorkerCertificateAsync(User.GetUserId(), cancellationToken);
+        return result.Status switch
+        {
+            WorkerCertStatus.Issued => result.Certificate!,
+            WorkerCertStatus.NotApproved => Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                detail: "Аккаунт ещё не подтверждён владельцем, сертификат не выдаётся"),
+            WorkerCertStatus.Deactivated => Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                detail: "Сотрудник уволен, сертификат не выдаётся"),
+            _ => throw new InvalidOperationException($"Неизвестный результат выдачи сертификата: {result.Status}"),
+        };
     }
 }

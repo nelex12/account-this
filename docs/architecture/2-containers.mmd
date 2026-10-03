@@ -1,0 +1,40 @@
+---
+config:
+  flowchart:
+    diagramPadding: 60
+    nodeSpacing: 60
+    rankSpacing: 80
+    wrappingWidth: 400
+---
+flowchart LR
+    subgraph Device["Браузер пользователя · HTTPS или localhost"]
+        SPA["Веб-приложение<br/>Worker, Issuer, Owner<br/>React · Vite · TypeScript<br/>камера · WebCrypto"]
+        Local[("Локальное хранилище<br/>ключ сервера, реестр,<br/>журнал, сертификат")]
+    end
+
+    subgraph Compose["Docker Compose"]
+        Nginx["nginx · :80<br/>статика<br/>прокси /api/"]
+        Backend["AccountThis.Api<br/>ASP.NET Core 8<br/>:8080, снаружи :5000"]
+        Postgres[("PostgreSQL 16<br/>:5432<br/>volume postgres_data")]
+    end
+
+    Env[/".env<br/>POSTGRES_*<br/>ключи, OWNER_*"/]
+    Init[/"init.sql<br/>схема БД"/]
+
+    SPA -->|"HTTPS<br/>/api/* с JWT"| Nginx
+    Nginx -->|"proxy_pass"| Backend
+    Backend -->|"Npgsql<br/>SQL"| Postgres
+
+    Env -.-> Backend
+    Env -.-> Postgres
+    Init -.-> Postgres
+
+    classDef front fill:#1e3a5f,stroke:#4a8fd6,color:#fff
+    classDef infra fill:#4a3520,stroke:#c08a4a,color:#fff
+    classDef code fill:#23232f,stroke:#6b6b80,color:#fff
+    classDef db fill:#3b2560,stroke:#8a63d2,color:#fff
+
+    class SPA front
+    class Nginx,Env,Init infra
+    class Backend code
+    class Postgres,Local db

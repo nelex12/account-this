@@ -1,0 +1,133 @@
+---
+config:
+  flowchart:
+    diagramPadding: 60
+    nodeSpacing: 22
+    rankSpacing: 90
+    wrappingWidth: 500
+---
+flowchart LR
+    Client(["Веб-приложение"])
+
+    subgraph Pipeline["Middleware"]
+        AuthN["Authentication<br/>нет JWT → 401"]
+        AuthZ["Authorization<br/>чужая роль → 403"]
+        Valid["Валидация модели<br/>→ 400"]
+        AuthN --> AuthZ --> Valid
+    end
+
+    Client --> AuthN
+
+    subgraph Controllers["Controllers · эндпоинт · метод · роль · коды ответа"]
+        subgraph AuthCtl["AuthController"]
+            E_reg["POST /api/auth/register · Register<br/>anonymous · 201 400 409"]
+            E_login["POST /api/auth/login · Login<br/>anonymous · 200 400 401 403"]
+            E_key["GET /api/auth/server-key · GetServerKey<br/>anonymous · 200"]
+            E_cert["GET /api/auth/worker-cert · GetWorkerCert<br/>Worker · 200 403"]
+        end
+        subgraph UsersCtl["UsersController"]
+            E_users["GET /api/users · GetUsers<br/>Owner · 200"]
+            E_fire["DELETE /api/users/{id} · DeactivateUser<br/>Owner · 200 400 404 409"]
+            E_approve["POST /api/users/{id}/approve · ApproveUser<br/>Owner · 200 400 404"]
+        end
+        subgraph ToolsCtl["ToolsController"]
+            E_tools["GET /api/tools · GetTools<br/>Issuer, Owner · 200"]
+            E_tnew["POST /api/tools · CreateTool<br/>Issuer, Owner · 201 400"]
+            E_tget["GET /api/tools/{id} · GetTool<br/>Issuer, Owner · 200 400 404"]
+            E_tpatch["PATCH /api/tools/{id} · UpdateToolCondition<br/>Issuer, Owner · 200 400 404"]
+            E_tdel["DELETE /api/tools/{id} · DeleteTool<br/>Owner · 200 400 404"]
+        end
+        subgraph SyncCtl["SyncController"]
+            E_sync["POST /api/sync · Sync<br/>Issuer · 200 400"]
+            E_logs["GET /api/logs · GetLogs<br/>Issuer, Owner · 200 400"]
+        end
+    end
+
+    Valid --> AuthCtl & UsersCtl & ToolsCtl & SyncCtl
+
+    Startup["Старт приложения<br/>OWNER_* из .env"]
+
+    subgraph Services["Services · метод · что вызывает внутри"]
+        subgraph AuthSvc["AuthService"]
+            S_reg["RegisterAsync<br/>Normalize · Hash"]
+            S_login["LoginAsync<br/>Normalize · Verify · CreateAccessToken"]
+            S_key["GetServerKey<br/>ServerPublicKey · время сервера"]
+            S_cert["IssueWorkerCertificateAsync<br/>GenerateKeyPair · SignWithServerKey"]
+        end
+        subgraph UsersSvc["UsersService"]
+            S_users["GetUsersAsync"]
+            S_fire["DeactivateAsync<br/>себя нельзя → 409"]
+            S_approve["ApproveAsync"]
+            S_owner["EnsureInitialOwnerAsync<br/>Normalize · Hash"]
+        end
+        subgraph ToolsSvc["ToolsService"]
+            S_tools["GetActiveToolsAsync"]
+            S_tnew["CreateAsync"]
+            S_tget["GetByIdAsync"]
+            S_tpatch["UpdateConditionAsync"]
+            S_tdel["DeactivateAsync"]
+        end
+        subgraph SyncSvc["SyncService"]
+            S_sync["SyncAsync<br/>TryParse → 2 подписи · время · инструмент · повтор<br/>→ флаг → INSERT"]
+            S_logs["GetLogsAsync"]
+        end
+    end
+
+    E_reg --> S_reg
+    E_login --> S_login
+    E_key --> S_key
+    E_cert --> S_cert
+    E_users --> S_users
+    E_fire --> S_fire
+    E_approve --> S_approve
+    E_tools --> S_tools
+    E_tnew --> S_tnew
+    E_tget --> S_tget
+    E_tpatch --> S_tpatch
+    E_tdel --> S_tdel
+    E_sync --> S_sync
+    E_logs --> S_logs
+    Startup -.-> S_owner
+
+    subgraph DB["PostgreSQL · Npgsql"]
+        users[("users<br/>phone UNIQUE · role<br/>is_approved · is_active")]
+        tools[("tools<br/>condition · comment<br/>condition_updated_at · is_active")]
+        logs[("rental_logs · неизменяемый<br/>worker_id · tool_id · issuer_id<br/>validation_flag · signed_payload")]
+        v_cur[("tool_current_holders<br/>последняя VALID по tool_id")]
+        v_tools[("tools_with_holders<br/>Tool + текущий держатель")]
+    end
+
+    S_reg -->|"INSERT"| users
+    S_login -->|"SELECT по phone"| users
+    S_cert -->|"SELECT по id"| users
+    S_users -->|"SELECT"| users
+    S_fire -->|"UPDATE is_active"| users
+    S_approve -->|"UPDATE is_approved"| users
+    S_owner -->|"SELECT, INSERT"| users
+
+    S_tools -->|"SELECT активные"| v_tools
+    S_tget -->|"SELECT по id"| v_tools
+    S_tnew -->|"INSERT"| tools
+    S_tpatch -->|"UPDATE condition, comment"| tools
+    S_tdel -->|"UPDATE is_active"| tools
+
+    S_sync -->|"SELECT workerId"| users
+    S_sync -->|"SELECT toolId, UPDATE condition"| tools
+    S_sync -->|"SELECT подпись, INSERT"| logs
+    S_logs -->|"SELECT + JOIN"| logs
+
+    logs -.-> v_cur -.-> v_tools
+    tools -.-> v_tools
+
+    classDef actor fill:#1f4d3a,stroke:#3fb27f,color:#fff
+    classDef mw fill:#1e3a5f,stroke:#4a8fd6,color:#fff
+    classDef code fill:#23232f,stroke:#6b6b80,color:#fff
+    classDef planned fill:#23232f,stroke:#d6a84a,color:#fff,stroke-dasharray: 5 5
+    classDef db fill:#3b2560,stroke:#8a63d2,color:#fff
+
+    class Client actor
+    class AuthN,AuthZ,Valid mw
+    class E_reg,E_login,E_key,E_cert,E_users,E_fire,E_approve,E_tools,E_tnew,E_tget,E_tpatch,E_tdel,E_sync,E_logs code
+    class S_reg,S_login,S_key,S_cert,S_users,S_fire,S_approve,S_tools,S_tnew,S_tget,S_tpatch,S_tdel,S_sync,S_logs code
+    class S_owner,Startup planned
+    class users,tools,logs,v_cur,v_tools db

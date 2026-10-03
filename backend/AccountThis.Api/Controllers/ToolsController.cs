@@ -1,6 +1,7 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using AccountThis.Api.Models;
+using AccountThis.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using AccountThis.Api.Models;
 
 namespace AccountThis.Api.Controllers;
 
@@ -8,15 +9,15 @@ namespace AccountThis.Api.Controllers;
 [ApiController]
 [Route("api/tools")]
 [Authorize(Roles = "Issuer,Owner")]
-public class ToolsController : ControllerBase
+public class ToolsController(IToolsService toolsService) : ControllerBase
 {
     /// <summary>
     /// Реестр активных (не списанных) инструментов — локальный реестр завхоза и печать QR-кодов.
     /// </summary>
     [HttpGet]
-    public ActionResult<List<Tool>> GetTools()
+    public async Task<ActionResult<List<Tool>>> GetTools(CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        return await toolsService.GetActiveToolsAsync(cancellationToken);
     }
 
     /// <summary>
@@ -26,9 +27,10 @@ public class ToolsController : ControllerBase
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
-    public ActionResult<Tool> CreateTool([FromBody] CreateToolRequest request)
+    public async Task<ActionResult<Tool>> CreateTool([FromBody] CreateToolRequest request, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var tool = await toolsService.CreateAsync(request, cancellationToken);
+        return CreatedAtAction(nameof(GetTool), new { id = tool.Id }, tool);
     }
 
     /// <summary>
@@ -38,9 +40,10 @@ public class ToolsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public ActionResult<Tool> GetTool(int id)
+    public async Task<ActionResult<Tool>> GetTool(int id, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var tool = await toolsService.GetByIdAsync(id, cancellationToken);
+        return tool is null ? ToolNotFound(id) : tool;
     }
 
     /// <summary>
@@ -52,9 +55,9 @@ public class ToolsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public IActionResult UpdateToolCondition(int id, [FromBody] UpdateToolConditionRequest request)
+    public async Task<IActionResult> UpdateToolCondition(int id, [FromBody] UpdateToolConditionRequest request, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        return await toolsService.UpdateConditionAsync(id, request, cancellationToken) ? Ok() : ToolNotFound(id);
     }
 
     /// <summary>
@@ -65,8 +68,11 @@ public class ToolsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public IActionResult DeleteTool(int id)
+    public async Task<IActionResult> DeleteTool(int id, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        return await toolsService.DeactivateAsync(id, cancellationToken) ? Ok() : ToolNotFound(id);
     }
+
+    private ObjectResult ToolNotFound(int id) =>
+        Problem(statusCode: StatusCodes.Status404NotFound, detail: $"Инструмент с id {id} не найден");
 }

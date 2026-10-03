@@ -1,0 +1,79 @@
+---
+config:
+  flowchart:
+    diagramPadding: 60
+    nodeSpacing: 35
+    rankSpacing: 90
+    wrappingWidth: 400
+---
+flowchart LR
+    Client(["Веб-приложение"])
+
+    subgraph Pipeline["Middleware"]
+        AuthN["Authentication<br/>нет JWT → 401"]
+        AuthZ["Authorization<br/>чужая роль → 403"]
+        Valid["Валидация модели<br/>→ 400"]
+        AuthN --> AuthZ --> Valid
+    end
+
+    subgraph Controllers["Controllers"]
+        AuthC["AuthController<br/>/api/auth"]
+        UsersC["UsersController<br/>/api/users"]
+        ToolsC["ToolsController<br/>/api/tools"]
+        SyncC["SyncController<br/>/api/sync · /api/logs"]
+    end
+
+    subgraph Services["Services"]
+        AuthS["AuthService"]
+        UsersS["UsersService"]
+        ToolsS["ToolsService"]
+        SyncS["SyncService"]
+    end
+
+    Startup["Старт приложения<br/>первый Owner"]
+
+    subgraph Security["Security"]
+        Hasher["PasswordHasher"]
+        Jwt["JwtTokenService"]
+        Sig["SignatureService · Ed25519"]
+        Qr["QrPayloadParser · AT1"]
+    end
+
+    subgraph DB["PostgreSQL · Npgsql"]
+        users[("users")]
+        tools[("tools")]
+        logs[("rental_logs")]
+        holders[("tools_with_holders")]
+    end
+
+    Client --> AuthN
+    Valid --> AuthC & UsersC & ToolsC & SyncC
+
+    AuthC --> AuthS
+    UsersC --> UsersS
+    ToolsC --> ToolsS
+    SyncC --> SyncS
+    Startup -.-> UsersS
+
+    AuthS --> Hasher & Jwt & Sig
+    UsersS --> Hasher
+    SyncS --> Qr & Sig
+
+    AuthS --> users
+    UsersS --> users
+    ToolsS --> tools & holders
+    SyncS --> logs & tools & users
+
+    classDef actor fill:#1f4d3a,stroke:#3fb27f,color:#fff
+    classDef mw fill:#1e3a5f,stroke:#4a8fd6,color:#fff
+    classDef code fill:#23232f,stroke:#6b6b80,color:#fff
+    classDef helper fill:#2a2f3a,stroke:#8a93a6,color:#fff
+    classDef planned fill:#23232f,stroke:#d6a84a,color:#fff,stroke-dasharray: 5 5
+    classDef db fill:#3b2560,stroke:#8a63d2,color:#fff
+
+    class Client actor
+    class AuthN,AuthZ,Valid mw
+    class AuthC,UsersC,ToolsC,SyncC,AuthS,UsersS,ToolsS,SyncS code
+    class Hasher,Jwt,Sig,Qr helper
+    class Startup planned
+    class users,tools,logs,holders db

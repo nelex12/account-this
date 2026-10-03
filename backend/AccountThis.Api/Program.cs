@@ -1,4 +1,6 @@
 using AccountThis.Api.Configuration;
+using AccountThis.Api.Security;
+using AccountThis.Api.Services;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,6 +21,19 @@ var connectionString = DatabaseConfiguration.BuildConnectionString(builder.Confi
 
 var dataSource = new NpgsqlDataSourceBuilder(connectionString).Build();
 builder.Services.AddSingleton(dataSource);
+
+builder.Services.AddSingleton(TimeProvider.System);
+
+// Сквозные сервисы безопасности: без состояния, ключи читаются из конфигурации один раз
+builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
+builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+builder.Services.AddSingleton<ISignatureService, SignatureService>();
+
+// Бизнес-логика контроллеров; к БД обращаются через NpgsqlDataSource
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUsersService, UsersService>();
+builder.Services.AddScoped<IToolsService, ToolsService>();
+builder.Services.AddScoped<ISyncService, SyncService>();
 
 var app = builder.Build();
 

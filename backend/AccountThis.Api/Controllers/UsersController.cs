@@ -1,6 +1,8 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using AccountThis.Api.Models;
+using AccountThis.Api.Security;
+using AccountThis.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using AccountThis.Api.Models;
 
 namespace AccountThis.Api.Controllers;
 
@@ -8,15 +10,15 @@ namespace AccountThis.Api.Controllers;
 [ApiController]
 [Route("api/users")]
 [Authorize(Roles = "Owner")]
-public class UsersController : ControllerBase
+public class UsersController(IUsersService usersService) : ControllerBase
 {
     /// <summary>
     /// Список всех пользователей (включая неподтверждённых и уволенных).
     /// </summary>
     [HttpGet]
-    public ActionResult<List<UserResponse>> GetUsers()
+    public async Task<ActionResult<List<UserResponse>>> GetUsers(CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        return await usersService.GetUsersAsync(cancellationToken);
     }
 
     /// <summary>
@@ -28,9 +30,18 @@ public class UsersController : ControllerBase
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
-    public IActionResult DeactivateUser(int id)
+    public async Task<IActionResult> DeactivateUser(int id, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var status = await usersService.DeactivateAsync(User.GetUserId(), id, cancellationToken);
+        return status switch
+        {
+            DeactivateUserStatus.Deactivated => Ok(),
+            DeactivateUserStatus.NotFound => UserNotFound(id),
+            DeactivateUserStatus.SelfDeactivation => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                detail: "Нельзя уволить самого себя"),
+            _ => throw new InvalidOperationException($"Неизвестный результат увольнения: {status}"),
+        };
     }
 
     /// <summary>
@@ -40,8 +51,11 @@ public class UsersController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public IActionResult ApproveUser(int id)
+    public async Task<IActionResult> ApproveUser(int id, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        return await usersService.ApproveAsync(id, cancellationToken) ? Ok() : UserNotFound(id);
     }
+
+    private ObjectResult UserNotFound(int id) =>
+        Problem(statusCode: StatusCodes.Status404NotFound, detail: $"Пользователь с id {id} не найден");
 }

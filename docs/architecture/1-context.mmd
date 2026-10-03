@@ -1,0 +1,32 @@
+---
+config:
+  flowchart:
+    diagramPadding: 60
+    nodeSpacing: 90
+    rankSpacing: 80
+    wrappingWidth: 400
+---
+flowchart TB
+    Worker(["Сотрудник · Worker<br/>берёт и возвращает инструменты"])
+    Owner(["Владелец · Owner<br/>подтверждает, увольняет, списывает"])
+    Issuer(["Завхоз · Issuer<br/>выдаёт, принимает, ведёт реестр"])
+
+    System["AccountThis<br/>учёт и выдача инструментов"]
+    Tool[/"Инструмент<br/>QR-наклейка: id и название"/]
+
+    Worker -. "показывает QR операции<br/>(оффлайн, подписан)" .-> Issuer
+
+    Worker -->|"вход, сертификат на 12 ч"| System
+    Owner -->|"заявки, увольнения, списание"| System
+    Issuer -->|"реестр, синхронизация журнала"| System
+
+    Issuer -. "печатает наклейку" .-> Tool
+    Worker -. "сканирует" .-> Tool
+
+    classDef actor fill:#1f4d3a,stroke:#3fb27f,color:#fff
+    classDef system fill:#1e3a5f,stroke:#4a8fd6,color:#fff
+    classDef thing fill:#4a3520,stroke:#c08a4a,color:#fff
+
+    class Worker,Issuer,Owner actor
+    class System system
+    class Tool thing

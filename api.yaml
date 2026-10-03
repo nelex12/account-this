@@ -73,6 +73,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RegisterRequest'
+      security: []
       responses:
         '201':
           description: Аккаунт зарегистрирован и ожидает подтверждения (без тела)
@@ -105,6 +106,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/LoginRequest'
+      security: []
       responses:
         '200':
           description: Успешная авторизация
@@ -147,6 +149,7 @@ paths:
       description: |
         Используется завхозом для верификации сертификатов сотрудников в оффлайне. Публичный ключ, без авторизации.
         Возвращает также serverTime — по нему клиент вычисляет смещение своих часов относительно сервера.
+      security: []
       responses:
         '200':
           description: Публичный ключ Ed25519 сервера и текущее время сервера
@@ -783,8 +786,9 @@ components:
       description: Не переданное (или null) поле не меняется; comment = "" очищает комментарий.
       properties:
         condition:
-          allOf:
-            - $ref: '#/components/schemas/ToolCondition'
+          # В OpenAPI 3.0 nullable действует только рядом с type, поэтому значения ToolCondition перечислены здесь
+          type: string
+          enum: [Good, Damaged, Broken]
           nullable: true
           description: Новое состояние; меняет и время изменения состояния (текущее время сервера)
         comment:

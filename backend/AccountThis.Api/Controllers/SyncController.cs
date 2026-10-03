@@ -1,12 +1,14 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using AccountThis.Api.Models;
+using AccountThis.Api.Security;
+using AccountThis.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using AccountThis.Api.Models;
 
 namespace AccountThis.Api.Controllers;
 
 [ApiController]
 [Route("api")]
-public class SyncController : ControllerBase
+public class SyncController(ISyncService syncService) : ControllerBase
 {
     /// <summary>
     /// Синхронизация оффлайн-выдач и возвратов. Сервер сам разбирает каждую строку QR и сохраняет
@@ -20,9 +22,20 @@ public class SyncController : ControllerBase
     [Authorize(Roles = "Issuer")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
-    public ActionResult<List<SyncResult>> Sync([FromBody] List<SyncRecord> records)
+    public async Task<ActionResult<List<SyncResult>>> Sync([FromBody] List<SyncRecord> records, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        var outcome = await syncService.SyncAsync(User.GetUserId(), records, cancellationToken);
+        if (outcome.IsRejected)
+        {
+            foreach (var (index, error) in outcome.FormatErrors)
+            {
+                ModelState.AddModelError($"[{index}].qr", error);
+            }
+
+            return ValidationProblem(ModelState);
+        }
+
+        return outcome.Results.ToList();
     }
 
     /// <summary>
@@ -33,8 +46,8 @@ public class SyncController : ControllerBase
     [Authorize(Roles = "Issuer,Owner")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
-    public ActionResult<List<RentalLogEntry>> GetLogs([FromQuery] RentalAction? action, [FromQuery] int? toolId)
+    public async Task<ActionResult<List<RentalLogEntry>>> GetLogs([FromQuery] RentalAction? action, [FromQuery] int? toolId, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        return await syncService.GetLogsAsync(action, toolId, cancellationToken);
     }
 }
