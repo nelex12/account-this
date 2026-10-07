@@ -1,5 +1,4 @@
 using AccountThis.Api.Models;
-using AccountThis.Api.Security;
 using Npgsql;
 
 namespace AccountThis.Api.Services;
@@ -8,47 +7,39 @@ public enum DeactivateUserStatus
 {
     // В том числе повторный вызов для уже уволенного
     Deactivated,
+
+    // Нет такого пользователя в компании вызывающего (пользователь другой компании — тоже NotFound)
     NotFound,
     SelfDeactivation
 }
 
+// Owner работает только с пользователями своей компании: companyId — из JWT вызывающего Owner.
+// Пользователь другой компании неотличим от несуществующего.
 public interface IUsersService
 {
-    // Все пользователи, включая неподтверждённых и уволенных
-    Task<List<UserResponse>> GetUsersAsync(CancellationToken cancellationToken);
+    // Все пользователи компании, включая неподтверждённых и уволенных
+    Task<List<UserResponse>> GetUsersAsync(Guid companyId, CancellationToken cancellationToken);
 
     // currentUserId — id вызывающего Owner (из JWT), чтобы запретить увольнение самого себя
-    Task<DeactivateUserStatus> DeactivateAsync(int currentUserId, int id, CancellationToken cancellationToken);
+    Task<DeactivateUserStatus> DeactivateAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken);
 
-    // false — пользователь не найден; повторное подтверждение — true
-    Task<bool> ApproveAsync(int id, CancellationToken cancellationToken);
-
-    // Первый Owner из OWNER_PHONE / OWNER_PASSWORD / OWNER_FULLNAME (сразу is_approved = true),
-    // если в users нет ни одного Owner. Вызывается один раз при старте из Program.cs (подключить после реализации).
-    Task EnsureInitialOwnerAsync(CancellationToken cancellationToken);
+    // false — пользователь не найден в компании; повторное подтверждение — true
+    Task<bool> ApproveAsync(Guid companyId, Guid id, CancellationToken cancellationToken);
 }
 
-public class UsersService(
-    NpgsqlDataSource dataSource,
-    IPasswordHasher passwordHasher,
-    IConfiguration configuration) : IUsersService
+public class UsersService(NpgsqlDataSource dataSource) : IUsersService
 {
-    public Task EnsureInitialOwnerAsync(CancellationToken cancellationToken)
+    public Task<List<UserResponse>> GetUsersAsync(Guid companyId, CancellationToken cancellationToken)
     {
         throw new NotImplementedException();
     }
 
-    public Task<List<UserResponse>> GetUsersAsync(CancellationToken cancellationToken)
+    public Task<DeactivateUserStatus> DeactivateAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken)
     {
         throw new NotImplementedException();
     }
 
-    public Task<DeactivateUserStatus> DeactivateAsync(int currentUserId, int id, CancellationToken cancellationToken)
-    {
-        throw new NotImplementedException();
-    }
-
-    public Task<bool> ApproveAsync(int id, CancellationToken cancellationToken)
+    public Task<bool> ApproveAsync(Guid companyId, Guid id, CancellationToken cancellationToken)
     {
         throw new NotImplementedException();
     }

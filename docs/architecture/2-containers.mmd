@@ -18,7 +18,7 @@ flowchart LR
         Postgres[("PostgreSQL 16<br/>:5432<br/>volume postgres_data")]
     end
 
-    Env[/".env<br/>POSTGRES_*<br/>ключи, OWNER_*"/]
+    Env[/".env<br/>POSTGRES_*<br/>ключи сервера и JWT"/]
     Init[/"init.sql<br/>схема БД"/]
 
     SPA -->|"HTTPS<br/>/api/* с JWT"| Nginx

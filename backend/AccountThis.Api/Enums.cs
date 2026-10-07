@@ -27,6 +27,8 @@ namespace AccountThis.Api.Models
 
     // Проверки выполняются в порядке объявления (после VALID), флаг — по первой непройденной.
     // Строка QR не по формату AT1 флага не получает: запрос /api/sync отклоняется целиком (400).
+    // UNKNOWN_WORKER и UNKNOWN_TOOL — сотрудника или инструмента нет в компании завхоза
+    // (из другой компании неотличимо от несуществующего).
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum ValidationFlag
     {
@@ -35,6 +37,7 @@ namespace AccountThis.Api.Models
         INVALID_WORKER_SIG,
         EXPIRED_TOKEN,
         TIME_DRIFT,
+        UNKNOWN_WORKER,
         UNKNOWN_TOOL,
         DUPLICATE
     }

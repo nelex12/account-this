@@ -31,12 +31,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       ENABLE_SWAGGER: ${ENABLE_SWAGGER:-false}
       ASPNETCORE_URLS: http://+:8080
-      # Ключи сервера (см. generate-keys.bat) и первый Owner
+      # Ключи сервера (см. generate-keys.bat)
       SERVER_SIGNING_KEY: ${SERVER_SIGNING_KEY}
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
-      OWNER_PHONE: ${OWNER_PHONE}
-      OWNER_PASSWORD: ${OWNER_PASSWORD}
-      OWNER_FULLNAME: ${OWNER_FULLNAME}
     ports:
       - "${BACKEND_PORT:-5000}:8080"
 

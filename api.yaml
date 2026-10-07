@@ -12,8 +12,33 @@ info:
 
     ## Авторизация
     JWT передаётся в заголовке `Authorization: Bearer <accessToken>`. Срок действия — 12 часов.
-    Содержит id пользователя (claim `sub`) и роль (claim `role`); подписан HMAC-SHA256 (секрет `JWT_SIGNING_KEY`).
+    Содержит id пользователя (claim `sub`), роль (claim `role`) и id его компании (claim `company_id`);
+    подписан HMAC-SHA256 (секрет `JWT_SIGNING_KEY`).
     Отзыва нет: после увольнения выданный JWT действует до истечения срока.
+
+    ## Идентификаторы
+    id пользователей, компаний и инструментов — UUID в каноническом виде (строчные hex, `8-4-4-4-12`). Их нельзя
+    перебрать и по ним нельзя оценить число пользователей или инструментов. Защитой данных они не являются:
+    от доступа к чужому объекту защищает проверка компании (см. ниже), а не секретность id.
+    Значение, не являющееся UUID, в пути или запросе — 400.
+    id записей журнала (`logId`, `RentalLogEntry.id`) — обычные числа: на вход они нигде не принимаются,
+    записи всегда выбираются по компании.
+
+    ## Компании
+    У компании есть только название (не уникальное). Каждый пользователь (любой роли), инструмент и запись журнала
+    принадлежит ровно одной компании, компания не меняется. Компании полностью изолированы друг от друга: Owner
+    подтверждает и увольняет только пользователей своей компании, Issuer и Owner видят только инструменты и журнал
+    своей компании, а в журнал не попадает ни сотрудник, ни инструмент, ни завхоз другой компании (это гарантируют
+    и проверки сервера, и составные внешние ключи БД). Объект другой компании неотличим от несуществующего — 404
+    (для `/api/sync` — флаги UNKNOWN_WORKER и UNKNOWN_TOOL).
+
+    Все три роли регистрируются сами (`POST /api/auth/register`). Owner при регистрации создаёт новую компанию
+    и подтверждается сразу (подтверждать некому). Списка компаний нет: Owner берёт id своей компании в
+    `GET /api/companies/my` и сообщает сотрудникам и завхозам, они указывают его (`companyId`) при регистрации
+    и ждут подтверждения Owner этой компании. Неугадываемый id позволяет присоединиться только тем, кому его сообщили.
+
+    Сколько владельцев может быть у одной компании и можно ли присоединиться к существующей компании как владелец —
+    не решено. Схема БД количество Owner в компании не ограничивает; сейчас регистрация Owner всегда создаёт новую компанию.
 
     ## Телефон
     Российский номер. На входе (регистрация, вход) допускаются префиксы `+7`, `7` или `8`, затем ровно 10 цифр;
@@ -35,7 +60,7 @@ info:
     - **401 / 403 / 404 / 409 от контроллера** (бизнес-проверки) — тело ProblemDetails (`application/problem+json`),
       `detail` — понятное пользователю пояснение на русском.
     - Во всех ProblemDetails есть `traceId` — идентификатор запроса для поиска в логах сервера.
-  version: 2.3.0
+  version: 4.0.0
 
 servers:
   - url: http://localhost
@@ -46,8 +71,10 @@ servers:
 tags:
   - name: Auth
     description: Регистрация, вход, ключ сервера и сертификаты сотрудников
+  - name: Companies
+    description: Своя компания (id для регистрации сотрудников)
   - name: Users
-    description: Управление пользователями (Owner)
+    description: Управление пользователями своей компании (Owner)
   - name: Tools
     description: Реестр инструментов
   - name: Sync
@@ -64,9 +91,17 @@ paths:
       operationId: Register
       summary: Регистрация нового пользователя
       description: |
-        Создает аккаунт со статусом is_approved = false, is_active = true (требуется подтверждение Owner).
-        Телефон нормализуется к `+7XXXXXXXXXX` и уникален среди всех пользователей, включая уволенных:
-        `89991234567` и `+7 (999) 123-45-67` — один и тот же номер. Без авторизации.
+        Регистрируются все роли. Компания задаётся по роли:
+        - **Owner** передаёт `companyName` — создаётся новая компания, а Owner становится её первым пользователем
+          и подтверждается сразу (is_approved = true): подтверждать некому. `companyId` не передаётся.
+        - **Worker** и **Issuer** передают `companyId` существующей компании (id сообщает её Owner, он виден в
+          `GET /api/companies/my`); аккаунт создаётся с is_approved = false и ждёт подтверждения Owner этой компании.
+          `companyName` не передаётся.
+
+        Во всех случаях is_active = true. Телефон нормализуется к `+7XXXXXXXXXX` и уникален среди всех пользователей,
+        включая уволенных: `89991234567` и `+7 (999) 123-45-67` — один и тот же номер. Без авторизации.
+
+        Если регистрация не удалась (409), компания не создаётся.
       requestBody:
         required: true
         content:
@@ -76,9 +111,25 @@ paths:
       security: []
       responses:
         '201':
-          description: Аккаунт зарегистрирован и ожидает подтверждения (без тела)
+          description: |
+            Аккаунт зарегистрирован (без тела). Owner может входить сразу; Worker и Issuer — после подтверждения Owner.
         '400':
-          $ref: '#/components/responses/ValidationError'
+          description: |
+            Некорректный запрос (ValidationProblemDetails). Помимо обычных ошибок полей:
+            - поля компании не соответствуют роли: у Owner нет `companyName` или передан `companyId`;
+              у Worker и Issuer нет `companyId` или передан `companyName`;
+            - `companyId` — компании с таким id нет.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblemDetails'
+              example:
+                type: https://tools.ietf.org/html/rfc9110#section-15.5.1
+                title: One or more validation errors occurred.
+                status: 400
+                errors:
+                  companyId: ['Компания с таким id не найдена']
+                traceId: 00-2f1c...-01
         '409':
           description: Пользователь с таким телефоном уже существует
           content:
@@ -98,7 +149,8 @@ paths:
       operationId: Login
       summary: Вход в систему
       description: |
-        Возвращает JWT (срок действия 12 часов). Вход разрешён только при is_approved = true и is_active = true.
+        Возвращает JWT (срок действия 12 часов; содержит id пользователя, роль и id его компании).
+        Вход разрешён только при is_approved = true и is_active = true.
         Телефон перед поиском нормализуется так же, как при регистрации. Без авторизации.
       requestBody:
         required: true
@@ -198,19 +250,47 @@ paths:
                 traceId: 00-2f1c...-01
 
   # ==========================================
+  # КОМПАНИИ
+  # ==========================================
+  /api/companies/my:
+    get:
+      tags: [Companies]
+      operationId: GetMyCompany
+      summary: Своя компания
+      description: |
+        Id и название компании вызывающего. Owner сообщает этот id сотрудникам и завхозам, они указывают его
+        при регистрации. Чужую компанию получить нельзя, как и список всех компаний. Отдельного создания
+        компании нет: она создаётся при регистрации Owner.
+
+        **Требуется авторизация:** любая роль.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Компания вызывающего
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==========================================
   # УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ
   # ==========================================
   /api/users:
     get:
       tags: [Users]
       operationId: GetUsers
-      summary: Список пользователей
-      description: "**Требуется роль:** Owner."
+      summary: Список пользователей своей компании
+      description: "**Требуется роль:** Owner. Только пользователи компании вызывающего."
       security:
         - BearerAuth: []
       responses:
         '200':
-          description: Список всех пользователей (включая неподтверждённых и уволенных)
+          description: Список пользователей своей компании (включая неподтверждённых и уволенных)
           content:
             application/json:
               schema:
@@ -230,7 +310,7 @@ paths:
       description: |
         Переводит is_active = false; запись не удаляется (на неё ссылается журнал). Повторный вызов — 200.
         Уже выданные JWT и сертификаты не отзываются и действуют до истечения срока (не более 12 часов).
-        Owner не может уволить сам себя.
+        Owner не может уволить сам себя. Только пользователь своей компании: пользователь другой компании — 404.
 
         **Требуется роль:** Owner.
       security:
@@ -268,6 +348,7 @@ paths:
       summary: Подтверждение регистрации пользователя
       description: |
         Переводит is_approved = true. Повторный вызов — 200.
+        Только пользователь своей компании: пользователь другой компании — 404.
 
         **Требуется роль:** Owner.
       security:
@@ -295,7 +376,7 @@ paths:
       operationId: GetTools
       summary: Получение реестра инструментов
       description: |
-        Возвращает список активных (не списанных) инструментов вместе с текущим держателем —
+        Возвращает список активных (не списанных) инструментов своей компании вместе с текущим держателем —
         локальный реестр завхоза и печать QR-кодов.
 
         **Требуется роль:** Issuer, Owner.
@@ -320,7 +401,8 @@ paths:
       operationId: CreateTool
       summary: Добавление нового инструмента
       description: |
-        id присваивается базой данных и возвращается в ответе — по нему завхоз печатает QR-код инструмента.
+        Инструмент добавляется в реестр компании вызывающего. id присваивается базой данных и возвращается
+        в ответе — по нему завхоз печатает QR-код инструмента.
         Новый инструмент создаётся в состоянии Good, без комментария и без держателя.
         Название — не длиннее 100 символов (попадает в QR сотрудника).
 
@@ -358,7 +440,7 @@ paths:
       operationId: GetTool
       summary: Данные инструмента
       description: |
-        Возвращает инструмент, в том числе списанный.
+        Возвращает инструмент своей компании, в том числе списанный. Инструмент другой компании — 404.
 
         **Требуется роль:** Issuer, Owner.
       security:
@@ -393,6 +475,7 @@ paths:
         Изменение `condition` выставляет время изменения состояния в текущее время сервера — после этого
         более ранние операции из поздних синхронизаций состояние не перезаписывают.
         Разрешено и для списанного инструмента (is_active не меняется).
+        Инструмент другой компании — 404.
 
         **Требуется роль:** Issuer, Owner.
       security:
@@ -424,6 +507,7 @@ paths:
       description: |
         Переводит is_active = false. Необратимое действие. Повторный вызов — 200.
         Списанный инструмент не попадает в GET /api/tools, но остаётся в GET /api/tools/{id} и в журнале.
+        Инструмент другой компании — 404.
 
         **Требуется роль:** Owner.
       security:
@@ -464,6 +548,11 @@ paths:
 
         **Идемпотентность:** запись с тем же issuer_id, scannedAt и той же строкой qr, уже сохранённая
         ранее (повторная отправка после обрыва связи), повторно не создаётся — в ответе возвращается существующая.
+
+        Запись принадлежит компании завхоза (company_id из JWT). Сотрудник из токена и инструмент из операции
+        ищутся только в этой компании: сотрудник другой компании неотличим от несуществующего (UNKNOWN_WORKER),
+        инструмент другой компании — тоже (UNKNOWN_TOOL). Привязки worker_id и tool_id у записи заполняются
+        только проверенным и найденным в компании завхоза, иначе null; чужие id в журнал не попадают.
 
         При флаге VALID сервер обновляет `tools.condition` значением `toolCondition`, если время операции
         (timestamp) не раньше последнего изменения состояния инструмента (>=).
@@ -524,7 +613,8 @@ paths:
       operationId: GetLogs
       summary: Просмотр журнала движения инструментов
       description: |
-        Возвращает записи rental_logs, новые сверху: по убыванию времени операции (qrTimestamp), затем по убыванию id.
+        Возвращает записи rental_logs своей компании (записи, синхронизированные её завхозами), новые сверху:
+        по убыванию времени операции (qrTimestamp), затем по убыванию id.
         Записи со всеми флагами, не только VALID.
 
         **Требуется роль:** Issuer, Owner.
@@ -540,10 +630,10 @@ paths:
         - name: toolId
           in: query
           required: false
-          description: Фильтр по инструменту (записи с toolId = null в выборку не попадают)
+          description: Фильтр по инструменту (записи с toolId = null в выборку не попадают); не UUID — 400
           schema:
-            type: integer
-            format: int32
+            type: string
+            format: uuid
       responses:
         '200':
           description: История операций
@@ -573,10 +663,10 @@ components:
       name: id
       in: path
       required: true
-      description: id объекта; нецелое значение — 400
+      description: id объекта (UUID); значение, не являющееся UUID, — 400
       schema:
-        type: integer
-        format: int32
+        type: string
+        format: uuid
 
   responses:
     ValidationError:
@@ -607,7 +697,7 @@ components:
         Роль пользователя не допускается к этому эндпоинту. Без тела.
         Увольнение уже выданный JWT не отзывает (см. раздел «Авторизация»).
     NotFound:
-      description: Объект с таким id не найден
+      description: Объект с таким id не найден (в том числе принадлежащий другой компании)
       content:
         application/problem+json:
           schema:
@@ -616,7 +706,7 @@ components:
             type: https://tools.ietf.org/html/rfc9110#section-15.5.5
             title: Not Found
             status: 404
-            detail: Инструмент с id 17 не найден
+            detail: Инструмент с id 17c4e5a2-93b8-4f10-8d6a-0b2e7c9d4f35 не найден
             traceId: 00-2f1c...-01
 
   schemas:
@@ -646,7 +736,7 @@ components:
           type: string
           nullable: true
           description: Пояснение к конкретному случаю на русском, для показа пользователю
-          example: Инструмент с id 17 не найден
+          example: Инструмент с id 17c4e5a2-93b8-4f10-8d6a-0b2e7c9d4f35 не найден
         instance:
           type: string
           nullable: true
@@ -680,7 +770,7 @@ components:
 
     UserRole:
       type: string
-      description: Worker — сотрудник, Issuer — завхоз, Owner — владелец
+      description: Worker — сотрудник, Issuer — завхоз, Owner — владелец (регистрируются все три)
       enum: [Worker, Issuer, Owner]
 
     ToolCondition:
@@ -703,16 +793,21 @@ components:
         - INVALID_WORKER_SIG — подпись работника невалидна;
         - EXPIRED_TOKEN — timestamp вне интервала [issuedAt, expiresAt];
         - TIME_DRIFT — |timestamp − scannedAt| > 60 с, либо timestamp или scannedAt позже момента приёма сервером более чем на 5 минут;
-        - UNKNOWN_TOOL — toolId отсутствует в реестре;
+        - UNKNOWN_WORKER — workerId из токена нет среди пользователей компании завхоза (сотрудник другой компании
+          неотличим от несуществующего);
+        - UNKNOWN_TOOL — toolId из операции отсутствует в реестре компании завхоза (инструмент другой компании — тоже);
         - DUPLICATE — VALID-запись с такой же workerSignature уже есть в журнале (повторное использование QR);
           записи с другими флагами не в счёт, поэтому на один QR приходится не более одной VALID-записи;
         - VALID — все проверки пройдены.
-      enum: [VALID, INVALID_SERVER_SIG, INVALID_WORKER_SIG, EXPIRED_TOKEN, TIME_DRIFT, UNKNOWN_TOOL, DUPLICATE]
+      enum: [VALID, INVALID_SERVER_SIG, INVALID_WORKER_SIG, EXPIRED_TOKEN, TIME_DRIFT, UNKNOWN_WORKER, UNKNOWN_TOOL, DUPLICATE]
 
     # ---------- Запросы и ответы ----------
 
     RegisterRequest:
       type: object
+      description: |
+        Поля компании зависят от роли: Owner передаёт `companyName` (и не передаёт `companyId`),
+        Worker и Issuer — `companyId` (и не передают `companyName`). Иначе — 400.
       required: [fullName, phone, password, role]
       properties:
         fullName:
@@ -733,6 +828,20 @@ components:
           example: "securePassword123"
         role:
           $ref: '#/components/schemas/UserRole'
+        companyId:
+          type: string
+          format: uuid
+          description: |
+            Только Worker и Issuer, обязателен для них. id существующей компании: его сообщает Owner
+            (виден ему в GET /api/companies/my)
+          example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        companyName:
+          type: string
+          maxLength: 100
+          description: |
+            Только Owner, обязателен для него. Название новой компании (не уникально).
+            Owner становится первым пользователем компании и подтверждается сразу
+          example: "ООО Ромашка"
 
     LoginRequest:
       type: object
@@ -852,14 +961,30 @@ components:
 
     # ---------- Основные модели ----------
 
+    Company:
+      type: object
+      description: Компания. Кроме названия других полей нет
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Неугадываемый id; по нему сотрудники и завхозы присоединяются к компании при регистрации
+          example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        name:
+          type: string
+          maxLength: 100
+          description: Название (не уникально)
+          example: "ООО Ромашка"
+
     UserResponse:
       type: object
       required: [id, fullName, phone, role, isApproved, isActive]
       properties:
         id:
-          type: integer
-          format: int32
-          example: 5
+          type: string
+          format: uuid
+          example: 5b1d0c8a-2f4e-4a63-9d17-8e0c3a6f4b21
         fullName:
           type: string
           example: "Иванов Иван Иванович"
@@ -872,7 +997,7 @@ components:
           $ref: '#/components/schemas/UserRole'
         isApproved:
           type: boolean
-          description: Регистрация подтверждена Owner
+          description: Регистрация подтверждена Owner компании (Owner, создавший компанию, подтверждён сразу)
         isActive:
           type: boolean
           description: false — уволен (запись не удаляется)
@@ -883,14 +1008,14 @@ components:
         Держатель (holderId, holderName, heldSince) вычисляется сервером по последней по времени операции
         VALID-записи журнала (view tool_current_holders): если это TAKE — инструмент на руках у сотрудника,
         если GIVE или записей нет — на месте у завхоза, и все три поля равны null.
-        Учитываются только синхронизированные записи.
+        Учитываются только синхронизированные записи. Инструмент принадлежит компании вызывающего (поля компании в модели нет).
       required: [id, name, condition, comment, isActive, holderId, holderName, heldSince]
       properties:
         id:
-          type: integer
-          format: int32
+          type: string
+          format: uuid
           description: Присваивается базой данных; по нему печатается QR инструмента
-          example: 17
+          example: 17c4e5a2-93b8-4f10-8d6a-0b2e7c9d4f35
         name:
           type: string
           example: "Дрель Bosch GSB 16 RE"
@@ -905,11 +1030,11 @@ components:
           type: boolean
           description: false — списан (необратимо)
         holderId:
-          type: integer
-          format: int32
+          type: string
+          format: uuid
           nullable: true
           description: id сотрудника, у которого инструмент на руках; null — инструмент на месте у завхоза
-          example: 5
+          example: 5b1d0c8a-2f4e-4a63-9d17-8e0c3a6f4b21
         holderName:
           type: string
           nullable: true
@@ -943,10 +1068,12 @@ components:
         - serverSignature и workerSignature — 64 байта, workerPublicKey — 32 байта;
         - token и op — UTF-8 JSON-объекты; все поля схем ServerSignedToken и RentalOperation обязательны,
           лишние поля игнорируются;
-        - строки — JSON-строки (не null); целые — JSON-числа (не строки, без дробной части), workerId и toolId > 0;
+        - строки — JSON-строки (не null); целые — JSON-числа (не строки, без дробной части);
+        - workerId и toolId — JSON-строки с UUID в каноническом виде: ровно 36 символов, строчные hex, `8-4-4-4-12`
+          (без фигурных скобок, без заглавных букв);
         - action и toolCondition — строго значения enum с учётом регистра (`TAKE`, но не `take` и не `0`).
 
-        Типичная длина — 500–700 символов.
+        Типичная длина — 600–800 символов (два UUID добавляют около 90 символов).
       example: "AT1.eyJ3b3JrZXJJZCI6NX0.c2lnbmF0dXJl.eyJhY3Rpb24iOiJUQUtFIn0.c2lnbmF0dXJl"
 
     ServerSignedToken:
@@ -958,11 +1085,10 @@ components:
       required: [workerId, fio, issuedAt, expiresAt, workerPublicKey]
       properties:
         workerId:
-          type: integer
-          format: int32
-          minimum: 1
-          description: ID пользователя в таблице users — связывает операцию с конкретным сотрудником (ФИО не уникально).
-          example: 5
+          type: string
+          format: uuid
+          description: UUID пользователя в таблице users — связывает операцию с конкретным сотрудником (ФИО не уникально).
+          example: 5b1d0c8a-2f4e-4a63-9d17-8e0c3a6f4b21
         fio:
           type: string
           description: ФИО сотрудника на момент выдачи сертификата
@@ -992,11 +1118,10 @@ components:
         toolCondition:
           $ref: '#/components/schemas/ToolCondition'
         toolId:
-          type: integer
-          format: int32
-          minimum: 1
-          description: id инструмента из его QR-наклейки
-          example: 17
+          type: string
+          format: uuid
+          description: UUID инструмента из его QR-наклейки
+          example: 17c4e5a2-93b8-4f10-8d6a-0b2e7c9d4f35
         toolName:
           type: string
           description: Название из QR-наклейки инструмента (сервер с реестром не сверяет)
@@ -1010,10 +1135,12 @@ components:
     RentalLogEntry:
       type: object
       description: |
-        Запись в неизменяемом журнале операций. Привязка определяется флагом:
-        - workerId — null при INVALID_SERVER_SIG (поддельный токен не приписывает операцию сотруднику),
-          иначе id из токена;
-        - toolId — null при INVALID_SERVER_SIG, INVALID_WORKER_SIG, UNKNOWN_TOOL, иначе toolId из операции;
+        Запись в неизменяемом журнале операций; принадлежит компании завхоза (issuerId). Привязка заполняется
+        только проверенным и найденным в компании завхоза, иначе null:
+        - workerId — id из токена, если подпись сервера верна (поддельный токен не приписывает операцию сотруднику)
+          и сотрудник есть в компании завхоза; null при INVALID_SERVER_SIG и UNKNOWN_WORKER;
+        - toolId — toolId из операции, если подпись работника верна и инструмент есть в реестре компании завхоза;
+          null при INVALID_SERVER_SIG, INVALID_WORKER_SIG, UNKNOWN_TOOL;
         - workerName/toolName берутся из users/tools, если workerId/toolId заполнены, иначе — из заявленных
           непроверенных значений внутри строки QR (fio, toolName).
       required: [id, toolId, toolName, workerId, workerName, issuerId, action, toolCondition, qrTimestamp, scannedAt, validationFlag, createdAt]
@@ -1023,26 +1150,26 @@ components:
           format: int32
           example: 41
         toolId:
-          type: integer
-          format: int32
+          type: string
+          format: uuid
           nullable: true
-          example: 17
+          example: 17c4e5a2-93b8-4f10-8d6a-0b2e7c9d4f35
         toolName:
           type: string
           example: "Дрель Bosch GSB 16 RE"
         workerId:
-          type: integer
-          format: int32
+          type: string
+          format: uuid
           nullable: true
-          example: 5
+          example: 5b1d0c8a-2f4e-4a63-9d17-8e0c3a6f4b21
         workerName:
           type: string
           example: "Иванов Иван Иванович"
         issuerId:
-          type: integer
-          format: int32
-          description: id завхоза, синхронизировавшего запись (из его JWT)
-          example: 2
+          type: string
+          format: uuid
+          description: id завхоза, синхронизировавшего запись (из его JWT); его компания — компания записи
+          example: 2a6f9d34-81c5-4b07-a3e2-6d5c7f1e9b08
         action:
           $ref: '#/components/schemas/RentalAction'
         toolCondition:

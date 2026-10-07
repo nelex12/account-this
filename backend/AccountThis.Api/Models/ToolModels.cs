@@ -26,7 +26,7 @@ public class UpdateToolConditionRequest
 // TAKE — инструмент на руках у сотрудника; GIVE или нет записей — на месте у завхоза, все три поля null.
 public class Tool
 {
-    public int Id { get; set; }
+    public Guid Id { get; set; }
 
     public string Name { get; set; } = string.Empty;
 
@@ -37,7 +37,7 @@ public class Tool
     public bool IsActive { get; set; }
 
     // id сотрудника, у которого инструмент на руках; null — на месте у завхоза
-    public int? HolderId { get; set; }
+    public Guid? HolderId { get; set; }
 
     // ФИО сотрудника-держателя (из users)
     public string? HolderName { get; set; }

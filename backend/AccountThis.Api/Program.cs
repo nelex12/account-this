@@ -31,6 +31,7 @@ builder.Services.AddSingleton<ISignatureService, SignatureService>();
 
 // Бизнес-логика контроллеров; к БД обращаются через NpgsqlDataSource
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ICompaniesService, CompaniesService>();
 builder.Services.AddScoped<IUsersService, UsersService>();
 builder.Services.AddScoped<IToolsService, ToolsService>();
 builder.Services.AddScoped<ISyncService, SyncService>();

@@ -36,7 +36,8 @@ public class RentalOperation
 
     public ToolCondition ToolCondition { get; set; }
 
-    public int ToolId { get; set; }
+    // UUID инструмента в каноническом виде (строчные hex, 8-4-4-4-12)
+    public Guid ToolId { get; set; }
 
     public string ToolName { get; set; } = string.Empty;
 
@@ -45,22 +46,23 @@ public class RentalOperation
 }
 
 // components.schemas.RentalLogEntry
-// Привязка определяется флагом: WorkerId — null при INVALID_SERVER_SIG;
-// ToolId — null при INVALID_SERVER_SIG, INVALID_WORKER_SIG, UNKNOWN_TOOL.
+// Привязка заполняется только проверенным и принадлежащим компании завхоза: WorkerId — null при INVALID_SERVER_SIG
+// и UNKNOWN_WORKER; ToolId — null при INVALID_SERVER_SIG, INVALID_WORKER_SIG, UNKNOWN_TOOL (а также если инструмент
+// не из компании завхоза, когда до проверки инструмента дело не дошло).
 // WorkerName/ToolName — из users/tools, если Id заполнен, иначе из непроверенных значений внутри строки QR.
 public class RentalLogEntry
 {
     public int Id { get; set; }
 
-    public int? ToolId { get; set; }
+    public Guid? ToolId { get; set; }
 
     public string ToolName { get; set; } = string.Empty;
 
-    public int? WorkerId { get; set; }
+    public Guid? WorkerId { get; set; }
 
     public string WorkerName { get; set; } = string.Empty;
 
-    public int IssuerId { get; set; }
+    public Guid IssuerId { get; set; }
 
     public RentalAction Action { get; set; }
 

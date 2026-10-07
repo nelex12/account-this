@@ -7,7 +7,10 @@ namespace AccountThis.Api.Services;
 public enum RegisterStatus
 {
     Created,
-    PhoneTaken
+    PhoneTaken,
+
+    // Worker / Issuer: компании с таким CompanyId нет
+    CompanyNotFound
 }
 
 public enum LoginStatus
@@ -33,7 +36,9 @@ public sealed record WorkerCertResult(WorkerCertStatus Status, WorkerCertificate
 
 public interface IAuthService
 {
-    // Телефон нормализуется (PhoneFormat.Normalize), пароль хешируется; is_approved = false
+    // Телефон нормализуется (PhoneFormat.Normalize), пароль хешируется.
+    // Owner: создаёт компанию (CompanyName) и сам подтверждается (is_approved = true) — подтверждать некому.
+    // Worker / Issuer: присоединяются к существующей компании (CompanyId, который сообщил её Owner), is_approved = false.
     Task<RegisterStatus> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken);
 
     Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken);
@@ -41,7 +46,7 @@ public interface IAuthService
     ServerKeyResponse GetServerKey();
 
     // is_approved / is_active проверяются по БД в момент запроса, а не по JWT
-    Task<WorkerCertResult> IssueWorkerCertificateAsync(int workerId, CancellationToken cancellationToken);
+    Task<WorkerCertResult> IssueWorkerCertificateAsync(Guid workerId, CancellationToken cancellationToken);
 }
 
 public class AuthService(
@@ -53,7 +58,12 @@ public class AuthService(
 {
     public Task<RegisterStatus> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken)
     {
-        // INSERT в users; нарушение UNIQUE(phone) (SqlState 23505) — PhoneTaken
+        // Owner — в одной транзакции: INSERT в companies, затем в users (role = Owner, is_approved = true).
+        //   Нарушение UNIQUE(phone) (SqlState 23505) — PhoneTaken, а компания при этом не создаётся (откат транзакции).
+        // Worker / Issuer — INSERT в users с company_id = CompanyId, is_approved = false.
+        //   Нарушение внешнего ключа company_id (SqlState 23503) — CompanyNotFound; UNIQUE(phone) — PhoneTaken.
+        // Различать нарушенное ограничение по PostgresException.ConstraintName.
+        // id компании и пользователя выдаёт БД (gen_random_uuid()): INSERT ... RETURNING id.
         throw new NotImplementedException();
     }
 
@@ -61,6 +71,7 @@ public class AuthService(
     {
         // Неизвестный телефон и неверный пароль неразличимы для клиента — оба InvalidCredentials.
         // is_approved / is_active проверяются только после верного пароля, чтобы не раскрывать статус чужого аккаунта.
+        // В JWT кладётся id, роль и company_id пользователя: CreateAccessToken(id, role, companyId).
         throw new NotImplementedException();
     }
 
@@ -69,7 +80,7 @@ public class AuthService(
         throw new NotImplementedException();
     }
 
-    public Task<WorkerCertResult> IssueWorkerCertificateAsync(int workerId, CancellationToken cancellationToken)
+    public Task<WorkerCertResult> IssueWorkerCertificateAsync(Guid workerId, CancellationToken cancellationToken)
     {
         // 1. Прочитать full_name, is_approved, is_active из users.
         // 2. Сгенерировать временную пару Ed25519 (приватный ключ не сохраняется).

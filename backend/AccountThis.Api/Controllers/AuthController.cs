@@ -11,8 +11,11 @@ namespace AccountThis.Api.Controllers;
 public class AuthController(IAuthService authService) : ControllerBase
 {
     /// <summary>
-    /// Регистрация нового пользователя. Создаёт аккаунт со статусом is_approved = false.
+    /// Регистрация нового пользователя любой роли. Owner создаёт новую компанию (companyName) и подтверждается сразу
+    /// (is_approved = true); Worker и Issuer присоединяются к существующей (companyId, который сообщил её Owner)
+    /// и ждут подтверждения Owner этой компании (is_approved = false).
     /// Телефон нормализуется к +7XXXXXXXXXX и уникален (включая уволенных). Без авторизации.
+    /// 400 — не заполнены поля компании для роли или компании с таким companyId нет; 409 — телефон уже занят.
     /// </summary>
     [HttpPost("register")]
     [AllowAnonymous]
@@ -28,6 +31,7 @@ public class AuthController(IAuthService authService) : ControllerBase
             RegisterStatus.PhoneTaken => Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 detail: "Пользователь с таким телефоном уже существует"),
+            RegisterStatus.CompanyNotFound => CompanyNotFound(request.CompanyId),
             _ => throw new InvalidOperationException($"Неизвестный результат регистрации: {status}"),
         };
     }
@@ -95,5 +99,12 @@ public class AuthController(IAuthService authService) : ControllerBase
                 detail: "Сотрудник уволен, сертификат не выдаётся"),
             _ => throw new InvalidOperationException($"Неизвестный результат выдачи сертификата: {result.Status}"),
         };
+    }
+
+    // companyId — поле запроса, поэтому ошибка ключом companyId в ValidationProblemDetails (400), а не 404
+    private ActionResult CompanyNotFound(Guid? companyId)
+    {
+        ModelState.AddModelError("companyId", "Компания с таким id не найдена");
+        return ValidationProblem(ModelState);
     }
 }

@@ -20,7 +20,9 @@ public static class PhoneFormat
 }
 
 // components.schemas.RegisterRequest
-public class RegisterRequest
+// Компания задаётся по роли: Owner создаёт новую (CompanyName), Worker и Issuer присоединяются к существующей (CompanyId).
+// Списка компаний нет: Owner сообщает сотрудникам и завхозам id своей компании (GET /api/companies/my).
+public class RegisterRequest : IValidatableObject
 {
     // Не длиннее 100 символов: ФИО попадает в QR сотрудника (fio в token)
     [Required]
@@ -38,6 +40,47 @@ public class RegisterRequest
     // Nullable, чтобы [Required] срабатывал: у ненулевого enum пропуск молча превратился бы в Worker.
     [Required]
     public UserRole? Role { get; set; }
+
+    // Только Worker и Issuer (обязателен): id существующей компании, который сообщил её Owner
+    public Guid? CompanyId { get; set; }
+
+    // Только Owner (обязателен): название новой компании, не длиннее 100 символов. Не уникально.
+    // Owner становится первым пользователем компании и подтверждается сразу.
+    [MaxLength(100)]
+    public string? CompanyName { get; set; }
+
+    // Взаимосвязь полей зависит от роли. Если Role не передана, это ошибка [Required] — здесь не дублируется.
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        switch (Role)
+        {
+            case UserRole.Owner:
+                if (string.IsNullOrWhiteSpace(CompanyName))
+                {
+                    yield return new ValidationResult("Владелец при регистрации указывает название новой компании", [nameof(CompanyName)]);
+                }
+
+                if (CompanyId is not null)
+                {
+                    yield return new ValidationResult("Владелец создаёт новую компанию, companyId не передаётся", [nameof(CompanyId)]);
+                }
+
+                break;
+
+            case UserRole.Worker or UserRole.Issuer:
+                if (CompanyId is null || CompanyId == Guid.Empty)
+                {
+                    yield return new ValidationResult("Укажите id компании, к которой вы присоединяетесь", [nameof(CompanyId)]);
+                }
+
+                if (CompanyName is not null)
+                {
+                    yield return new ValidationResult("Новую компанию создаёт только владелец, companyName не передаётся", [nameof(CompanyName)]);
+                }
+
+                break;
+        }
+    }
 }
 
 // components.schemas.LoginRequest
@@ -75,7 +118,8 @@ public class ServerKeyResponse
 // Сама подпись передаётся отдельно (WorkerCertificate.ServerSignature) и ставится над строкой token.
 public class ServerSignedToken
 {
-    public int WorkerId { get; set; }
+    // UUID пользователя в каноническом виде (строчные hex, 8-4-4-4-12)
+    public Guid WorkerId { get; set; }
 
     public string Fio { get; set; } = string.Empty;
 

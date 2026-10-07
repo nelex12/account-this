@@ -16,6 +16,7 @@ public class SyncController(ISyncService syncService) : ControllerBase
     /// Строка не по формату AT1 — 400 для всего запроса с номерами таких записей (ValidationProblemDetails,
     /// ключи вида "[3].qr"), ничего не сохраняется. Повторно отправленная запись (тот же issuer, ScannedAt
     /// и строка QR) не дублируется. Результаты — в порядке запроса.
+    /// Сотрудник и инструмент ищутся только в компании завхоза: чужой — UNKNOWN_WORKER / UNKNOWN_TOOL.
     /// Требуется роль: Issuer.
     /// </summary>
     [HttpPost("sync")]
@@ -24,7 +25,7 @@ public class SyncController(ISyncService syncService) : ControllerBase
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<List<SyncResult>>> Sync([FromBody] List<SyncRecord> records, CancellationToken cancellationToken)
     {
-        var outcome = await syncService.SyncAsync(User.GetUserId(), records, cancellationToken);
+        var outcome = await syncService.SyncAsync(User.GetCompanyId(), User.GetUserId(), records, cancellationToken);
         if (outcome.IsRejected)
         {
             foreach (var (index, error) in outcome.FormatErrors)
@@ -39,15 +40,16 @@ public class SyncController(ISyncService syncService) : ControllerBase
     }
 
     /// <summary>
-    /// Журнал движения инструментов: новые сверху (qr_timestamp DESC, id DESC), с фильтрами по action и toolId.
+    /// Журнал движения инструментов своей компании: новые сверху (qr_timestamp DESC, id DESC),
+    /// с фильтрами по action и toolId.
     /// Требуется роль: Issuer, Owner.
     /// </summary>
     [HttpGet("logs")]
     [Authorize(Roles = "Issuer,Owner")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<List<RentalLogEntry>>> GetLogs([FromQuery] RentalAction? action, [FromQuery] int? toolId, CancellationToken cancellationToken)
+    public async Task<ActionResult<List<RentalLogEntry>>> GetLogs([FromQuery] RentalAction? action, [FromQuery] Guid? toolId, CancellationToken cancellationToken)
     {
-        return await syncService.GetLogsAsync(action, toolId, cancellationToken);
+        return await syncService.GetLogsAsync(User.GetCompanyId(), action, toolId, cancellationToken);
     }
 }
