@@ -49,3 +49,6 @@ if (swaggerEnabled)
 app.MapControllers();
 
 app.Run();
+
+// Нужен WebApplicationFactory<Program> в AccountThis.Api.Tests: класс из top-level statements по умолчанию internal
+public partial class Program;
