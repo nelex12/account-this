@@ -1,7 +1,16 @@
 using AccountThis.Api.Configuration;
 using AccountThis.Api.Security;
 using AccountThis.Api.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using Npgsql;
+using System;
+
+using AccountThis.Api.Models;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+
+using AccountThis.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +24,25 @@ if (builder.Environment.IsDevelopment())
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+var secret = builder.Configuration["JWT_SIGNING_KEY"]; 
+var keyBytes = Base64UrlEncoder.DecodeBytes(secret);   // текст - байты
+var key = new SymmetricSecurityKey(keyBytes);              // байты - ключ
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            IssuerSigningKey = key,
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            RoleClaimType = "role",
+        };
+    });
+builder.Services.AddAuthorization();
 
 // Строка подключения собирается из POSTGRES_* (см. DatabaseConfiguration). Без миграций, БД уже существует
 var connectionString = DatabaseConfiguration.BuildConnectionString(builder.Configuration);
@@ -45,6 +73,9 @@ if (swaggerEnabled)
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 
