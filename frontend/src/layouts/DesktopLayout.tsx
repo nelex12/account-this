@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import type { TopAppBarDesktopProps } from '../components/TopAppBarDesktop';
 import Box from '@mui/material/Box';
 import NavigationRail from '../components/NavigationRail';
-import TopAppBarDesktop from '../components/TopAppBarDesktop';
+import TopAppBar from '../components/TopAppBarDesktop';
 
 interface DesktopLayoutProps {
   topBar: TopAppBarDesktopProps;
@@ -12,12 +12,11 @@ interface DesktopLayoutProps {
 
 export default function DesktopLayout({ topBar, children }: DesktopLayoutProps) {
   return (
-    <Box sx={{ display: 'flex', height: '100vh' }}>
+    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <NavigationRail />
 
-      {/* Right side: top bar + scrollable content */}
       <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <TopAppBarDesktop {...topBar} />
+        <TopAppBar {...topBar} />
 
         <Box component="main" sx={{ flexGrow: 1, overflow: 'auto' }}>
           {children}

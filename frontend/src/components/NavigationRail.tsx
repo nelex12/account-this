@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
   Box,
-  Stack,
   Typography,
   List,
   ListItem,
@@ -21,8 +20,9 @@ export default function NavigationRail() {
   return (
     <Box
       sx={{
-        width: '20vw',
-        height: '100vh',
+        width: 240,
+        flexShrink: 0,
+        alignSelf: 'stretch',      // fills parent's height instead of hard 100vh
         display: 'flex',
         flexDirection: 'column',
         borderRight: 1,
