@@ -43,3 +43,8 @@ dotnet test backend/AccountThis.Api/AccountThis.Api.slnx --filter "FullyQualifie
 4. `CompaniesService`, `UsersService`.
 5. `ToolsService`.
 6. `QrPayloadParser` + `SyncService` (sync, logs).
+
+
+## Исключение и разделение ролей
+Если сейчас ты общаешься с разработчиком фронтенда, то текущие инструкции тебя не касаются. Старайся работать локально в папке frontend, выходя из неё только по необходимости.
+Данный файл создан backend разработчиком для обучения
