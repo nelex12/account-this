@@ -8,22 +8,30 @@ import UsersPage from './pages/users/UsersPage.tsx';
 
 import NavigationRail from './components/NavigationRail.tsx';
 import NavigationBottom from './components/NavigationBottom.tsx';
-import TopAppBarDesktop from './components/TopAppBarDesktop.tsx';
-import AppLayout from './layouts/DesktopLayout.tsx';
+import TopAppBar from './components/TopAppBarDesktop.tsx';
+import DesktopLayout from './layouts/DesktopLayout.tsx';
+import AppLayout from './layouts/AppLayout.tsx';
 import { Stack } from '@mui/material';
 
 function App() {
   return (
     <>
+      {/*
       <Stack>
-        <AppLayout
+        <DesktopLayout
           topBar={{ title: 'Обзор', supportingText: '1 октября 2026', statusLabel: 'В сети' }}
         >
           <UsersPage />
-        </AppLayout>
+        </DesktopLayout>
+      
         
-        {/*<NavigationBottom />*/}
+        <NavigationBottom />
       </Stack>
+      */}
+      <AppLayout>
+        <TopAppBar title="Журнал операций" supportingText="1 октября 2026" statusLabel="В сети" />
+        <JournalPage />
+      </AppLayout>
     </>
   );
 }
