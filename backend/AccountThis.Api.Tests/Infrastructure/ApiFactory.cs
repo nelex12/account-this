@@ -15,6 +15,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         .WithPassword("test")
         .Build();
 
+    // Прямой доступ к БД из тестов: подготовить состояние, которое ещё не умеет выставлять API, и проверить результат
+    public TestDb Db => new(_postgres.GetConnectionString());
+
     public async Task InitializeAsync()
     {
         await _postgres.StartAsync();

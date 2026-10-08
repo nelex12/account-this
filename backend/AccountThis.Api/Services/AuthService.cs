@@ -1,6 +1,8 @@
 using AccountThis.Api.Models;
 using AccountThis.Api.Security;
+using Microsoft.AspNetCore.Authentication.OAuth.Claims;
 using Npgsql;
+using System.ComponentModel.Design;
 
 namespace AccountThis.Api.Services;
 
@@ -56,7 +58,7 @@ public class AuthService(
     ISignatureService signatureService,
     TimeProvider timeProvider) : IAuthService
 {
-    public Task<RegisterStatus> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken)
+    public async Task<RegisterStatus> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken)
     {
         // Owner — в одной транзакции: INSERT в companies, затем в users (role = Owner, is_approved = true).
         //   Нарушение UNIQUE(phone) (SqlState 23505) — PhoneTaken, а компания при этом не создаётся (откат транзакции).
@@ -64,6 +66,28 @@ public class AuthService(
         //   Нарушение внешнего ключа company_id (SqlState 23503) — CompanyNotFound; UNIQUE(phone) — PhoneTaken.
         // Различать нарушенное ограничение по PostgresException.ConstraintName.
         // id компании и пользователя выдаёт БД (gen_random_uuid()): INSERT ... RETURNING id.
+        var normalizedPhone = PhoneFormat.Normalize(request.Phone);
+        var hash = passwordHasher.Hash(request.Password);
+
+        await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        
+
+        if (request.Role == UserRole.Worker || request.Role == UserRole.Issuer)
+        {
+            await using var cmd = new NpgsqlCommand(
+                "INSERT INTO " +
+                "users (company_id, full_name, phone, password_hash, role) " +
+                "VALUES (@companyId, @fullName, @phone, @hash, @role::user_role)",
+                conn);
+            cmd.Parameters.AddWithValue("companyId", request.CompanyId!.Value);
+            cmd.Parameters.AddWithValue("fullName", request.FullName);
+            cmd.Parameters.AddWithValue("phone", normalizedPhone);
+            cmd.Parameters.AddWithValue("hash", hash);
+            cmd.Parameters.AddWithValue("role", request.Role!.Value.ToString());
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+            return RegisterStatus.Created;
+        }
         throw new NotImplementedException();
     }
 
@@ -77,7 +101,7 @@ public class AuthService(
 
     public ServerKeyResponse GetServerKey()
     {
-        throw new NotImplementedException();
+        return new ServerKeyResponse { ServerPublicKey = signatureService.ServerPublicKey, ServerTime = timeProvider.GetUtcNow().ToUnixTimeSeconds() };
     }
 
     public Task<WorkerCertResult> IssueWorkerCertificateAsync(Guid workerId, CancellationToken cancellationToken)
