@@ -1,125 +1,130 @@
-// UsersPage.tsx
 import { useMemo, useState } from 'react';
+import Avatar from '@mui/material/Avatar';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
-import DataTable, { type DataTableColumn } from '../../components/DataTable';
+import Typography from '@mui/material/Typography';
+import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
+import StatusBadge, { type StatusBadgeColor } from '../../shared/ui/StatusBadge';
 
 /* ----------------------------------- Data ----------------------------------- */
 
-type UserRole = 'сотрудник' | 'заведующий' | 'владелец';
-type UserStatus = 'ожидает' | 'одобрена' | 'отклонена';
-
+type UserRole = 'worker' | 'issuer' | 'owner';
+type RequestStatus = 'pending' | 'approved' | 'rejected';
 type RoleFilter = 'all' | UserRole;
 
-interface UserRow {
+interface RequestRow {
   id: string;
-  applicant: string;
+  fullName: string;
   phone: string;
   role: UserRole;
-  status: UserStatus;
-  /** Date the application was submitted */
-  requestedAt: string;
+  status: RequestStatus;
+  date: string;
 }
 
-const tabs = ['Заявки', 'Пользователи', 'Уволены'] as const;
+const roleLabel: Record<UserRole, string> = {
+  worker: 'Сотрудник',
+  issuer: 'Заведующий',
+  owner: 'Владелец',
+};
+
+const statusBadge: Record<RequestStatus, { label: string; color: StatusBadgeColor }> = {
+  pending: { label: 'Ожидает', color: 'warning' },
+  approved: { label: 'Одобрена', color: 'success' },
+  rejected: { label: 'Отклонена', color: 'error' },
+};
 
 const filters: { value: RoleFilter; label: string }[] = [
   { value: 'all', label: 'Все' },
-  { value: 'сотрудник', label: 'Сотрудник' },
-  { value: 'заведующий', label: 'Заведующий' },
-  { value: 'владелец', label: 'Владелец' },
+  { value: 'worker', label: roleLabel.worker },
+  { value: 'issuer', label: roleLabel.issuer },
+  { value: 'owner', label: roleLabel.owner },
 ];
 
-const roleLabel: Record<UserRole, string> = {
-  сотрудник: 'Сотрудник',
-  заведующий: 'Заведующий',
-  владелец: 'Владелец',
-};
-
-const statusLabel: Record<UserStatus, string> = {
-  ожидает: 'Ожидает',
-  одобрена: 'Одобрена',
-  отклонена: 'Отклонена',
-};
-
-const userRows: UserRow[] = [
-  { id: '1',  applicant: 'Иванов И. И.',    phone: '+7 900 123-45-67', role: 'сотрудник',  status: 'ожидает',  requestedAt: '01.10.2026' },
-  { id: '2',  applicant: 'Петров П. П.',    phone: '+7 900 234-56-78', role: 'заведующий', status: 'одобрена', requestedAt: '02.10.2026' },
-  { id: '3',  applicant: 'Сидоров С. С.',   phone: '+7 900 345-67-89', role: 'владелец',   status: 'отклонена', requestedAt: '02.10.2026' },
-  { id: '4',  applicant: 'Кузнецова А. А.', phone: '+7 900 456-78-90', role: 'сотрудник',  status: 'ожидает',  requestedAt: '03.10.2026' },
-  { id: '5',  applicant: 'Смирнова Е. В.',  phone: '+7 900 567-89-01', role: 'сотрудник',  status: 'одобрена', requestedAt: '03.10.2026' },
-  { id: '6',  applicant: 'Кузнецов Д. А.',  phone: '+7 900 678-90-12', role: 'заведующий', status: 'отклонена', requestedAt: '04.10.2026' },
-  { id: '7',  applicant: 'Орлов М. К.',     phone: '+7 900 789-01-23', role: 'сотрудник',  status: 'ожидает',  requestedAt: '05.10.2026' },
-  { id: '8',  applicant: 'Васильев П. Н.',  phone: '+7 900 890-12-34', role: 'владелец',   status: 'одобрена', requestedAt: '06.10.2026' },
-  { id: '9',  applicant: 'Новиков С. Р.',   phone: '+7 900 901-23-45', role: 'сотрудник',  status: 'отклонена', requestedAt: '06.10.2026' },
-  { id: '10', applicant: 'Козлов Т. Е.',    phone: '+7 900 012-34-56', role: 'заведующий', status: 'ожидает',  requestedAt: '07.10.2026' },
+const requestRows: RequestRow[] = [
+  { id: '1', fullName: 'Иванов Алексей Петрович', phone: '+7 (900) 123-45-67', role: 'worker', status: 'pending', date: '29.09.2026' },
+  { id: '2', fullName: 'Смирнова Мария Игоревна', phone: '+7 (916) 245-80-31', role: 'issuer', status: 'pending', date: '30.09.2026' },
+  { id: '3', fullName: 'Кузнецов Дмитрий Олегович', phone: '+7 (925) 770-14-52', role: 'worker', status: 'pending', date: '01.10.2026' },
+  { id: '4', fullName: 'Попов Сергей Андреевич', phone: '+7 (903) 318-92-06', role: 'worker', status: 'approved', date: '27.09.2026' },
+  { id: '5', fullName: 'Васильева Елена Сергеевна', phone: '+7 (999) 456-73-18', role: 'issuer', status: 'approved', date: '26.09.2026' },
+  { id: '6', fullName: 'Морозов Игорь Николаевич', phone: '+7 (905) 681-27-40', role: 'worker', status: 'rejected', date: '25.09.2026' },
+  { id: '7', fullName: 'Новикова Ольга Викторовна', phone: '+7 (911) 502-66-93', role: 'issuer', status: 'approved', date: '24.09.2026' },
+  { id: '8', fullName: 'Фёдоров Артём Максимович', phone: '+7 (962) 134-09-85', role: 'issuer', status: 'rejected', date: '22.09.2026' },
 ];
 
-/* --------------------------------- Callbacks -------------------------------- */
-
-interface RowActions {
-  onAccept: (row: UserRow) => void;
-  onDecline: (row: UserRow) => void;
-  onDetails: (row: UserRow) => void;
+/** "Иванов Алексей Петрович" → "ИА" (first letters of surname and name) */
+function getInitials(fullName: string): string {
+  return fullName
+    .split(' ')
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('');
 }
 
-// Column widths from the design (Заявитель / Телефон / Роль / Статус / Дата заявки / Действия),
-// as % of the visible columns
-const buildColumns = (actions: RowActions): DataTableColumn<UserRow>[] => [
-  { key: 'applicant', label: 'ЗАЯВИТЕЛЬ',   width: '20%', render: (row) => row.applicant },
-  { key: 'phone',     label: 'ТЕЛЕФОН',     width: '16%', render: (row) => row.phone },
-  { key: 'role',      label: 'РОЛЬ',        width: '14%', render: (row) => roleLabel[row.role] },
-  { key: 'status',    label: 'СТАТУС',      width: '13%', render: (row) => statusLabel[row.status] },
-  { key: 'requested', label: 'ДАТА ЗАЯВКИ', width: '13%', render: (row) => row.requestedAt },
+// Column widths from the design (400 / 240 / 210 / 200 / 150 / 291 px), as % of the table
+const columns: DataTableColumn<RequestRow>[] = [
   {
-    key: 'actions',
-    label: 'ДЕЙСТВИЯ',
-    width: '24%',
+    key: 'applicant',
+    label: 'ЗАЯВИТЕЛЬ',
+    width: '27%',
     render: (row) => (
-      <Stack direction="row" spacing={1}>
-        {row.status === 'ожидает' && (
-          <>
-            <Button size="small" onClick={() => actions.onAccept(row)}>
-              Принять
-            </Button>
-            <Button size="small" color="error" onClick={() => actions.onDecline(row)}>
-              Отклонить
-            </Button>
-          </>
-        )}
-        <Button size="small" onClick={() => actions.onDetails(row)}>
-          Подробнее
-        </Button>
+      <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+        <Avatar>{getInitials(row.fullName)}</Avatar>
+        <Typography>{row.fullName}</Typography>
       </Stack>
     ),
   },
+  { key: 'phone', label: 'ТЕЛЕФОН', width: '16%', render: (row) => row.phone },
+  { key: 'role', label: 'РОЛЬ', width: '14%', render: (row) => roleLabel[row.role] },
+  {
+    key: 'status',
+    label: 'СТАТУС',
+    width: '13%',
+    render: (row) => <StatusBadge {...statusBadge[row.status]} />,
+  },
+  {
+    key: 'date',
+    label: 'ДАТА ЗАЯВКИ',
+    width: '10%',
+    render: (row) => <Typography color="text.secondary">{row.date}</Typography>,
+  },
+  {
+    key: 'actions',
+    label: 'ДЕЙСТВИЯ',
+    width: '20%',
+    render: (row) =>
+      row.status === 'pending' ? (
+        <Stack direction="row" spacing={1}>
+          <Button>Принять</Button>
+          <Button>Отклонить</Button>
+        </Stack>
+      ) : (
+        <Button>Подробнее</Button>
+      ),
+  },
 ];
-
-const filterPredicates: Record<RoleFilter, (row: UserRow) => boolean> = {
-  all: () => true,
-  сотрудник: (row) => row.role === 'сотрудник',
-  заведующий: (row) => row.role === 'заведующий',
-  владелец: (row) => row.role === 'владелец',
-};
 
 const ROWS_PER_PAGE = 8;
 
 /* ----------------------------------- Page ----------------------------------- */
 
 /**
- * "Пользователи" page body (tabs + search + role filters + table),
+ * "Пользователи" page body (Penpot: Users Board → Content Board → Body),
  * built from default MUI components only.
  *
- * Layout:
- *   - Tabs row: Заявки / Пользователи / Уволены
- *   - Filters row: search field + role filter chips
- *   - Users table with per-row actions and pagination
+ * Layout (24px vertical gap):
+ *   - Tabs: Заявки / Сотрудники / Уволены
+ *   - Toolbar: search field + role filter chips
+ *   - Requests table with pagination
  *
- * The top app bar is NOT included; render it above this component.
+ * The top app bar is NOT included; render <TopAppBarDesktop /> above this with
+ *   title="Пользователи", supportingText="48 сотрудников · 3 новые заявки"
+ * (no status chip and no action buttons in the design).
+ *
+ * Only the "Заявки" tab is designed, so the other two tabs are empty for now.
  */
 export default function UsersPage() {
   const [tab, setTab] = useState(0);
@@ -129,12 +134,10 @@ export default function UsersPage() {
 
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return userRows.filter(
+    return requestRows.filter(
       (row) =>
-        filterPredicates[filter](row) &&
-        (!q ||
-          row.applicant.toLowerCase().includes(q) ||
-          row.phone.toLowerCase().includes(q)),
+        (filter === 'all' || row.role === filter) &&
+        (!q || row.fullName.toLowerCase().includes(q) || row.phone.includes(q)),
     );
   }, [filter, query]);
 
@@ -150,74 +153,53 @@ export default function UsersPage() {
     setPage(0);
   };
 
-  const columns = useMemo(
-    () =>
-      buildColumns({
-        onAccept: (row) => {
-          // TODO: call API to approve the application
-          console.log('accept', row.id);
-        },
-        onDecline: (row) => {
-          // TODO: call API to reject the application
-          console.log('decline', row.id);
-        },
-        onDetails: (row) => {
-          // TODO: open a details drawer/dialog
-          console.log('details', row.id);
-        },
-      }),
-    [],
-  );
-
   return (
     <Stack spacing={3} sx={{ p: 3 }}>
-      {/* Tabs */}
-      <Tabs
-        value={tab}
-        onChange={(_, value: number) => setTab(value)}
-        variant="standard"
-        sx={{ borderBottom: 1, borderColor: 'divider' }}
-      >
-        {tabs.map((label) => (
-          <Tab key={label} label={label} />
-        ))}
+      <Tabs value={tab} onChange={(_, value: number) => setTab(value)}>
+        <Tab label="Заявки" />
+        <Tab label="Сотрудники" />
+        <Tab label="Уволены" />
       </Tabs>
 
-      {/* Filters: search + chips */}
-      <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-        <TextField
-          label="Поиск по имени или телефону"
-          value={query}
-          onChange={(event) => handleQueryChange(event.target.value)}
-          sx={{ minWidth: 320 }}
-        />
-
-        <Stack direction="row" spacing={1}>
-          {filters.map(({ value, label }) => (
-            <Chip
-              key={value}
-              label={label}
-              clickable
-              color={filter === value ? 'primary' : 'default'}
-              variant={filter === value ? 'filled' : 'outlined'}
-              onClick={() => handleFilterChange(value)}
+      {tab === 0 && (
+        <>
+          {/* Toolbar: search + role chips */}
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+            <TextField
+              label="Поиск по имени или телефону"
+              value={query}
+              onChange={(event) => handleQueryChange(event.target.value)}
+              sx={{ minWidth: 320 }}
             />
-          ))}
-        </Stack>
-      </Stack>
 
-      {/* Users table */}
-      <DataTable
-        columns={columns}
-        rows={pageRows}
-        getRowId={(row) => row.id}
-        pagination={{
-          count: filteredRows.length,
-          page,
-          rowsPerPage: ROWS_PER_PAGE,
-          onPageChange: setPage,
-        }}
-      />
+            <Stack direction="row" spacing={1}>
+              {filters.map(({ value, label }) => (
+                <Chip
+                  key={value}
+                  label={label}
+                  clickable
+                  color={filter === value ? 'primary' : 'default'}
+                  variant={filter === value ? 'filled' : 'outlined'}
+                  onClick={() => handleFilterChange(value)}
+                />
+              ))}
+            </Stack>
+          </Stack>
+
+          {/* Requests table */}
+          <DataTable
+            columns={columns}
+            rows={pageRows}
+            getRowId={(row) => row.id}
+            pagination={{
+              count: filteredRows.length,
+              page,
+              rowsPerPage: ROWS_PER_PAGE,
+              onPageChange: setPage,
+            }}
+          />
+        </>
+      )}
     </Stack>
   );
 }

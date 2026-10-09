@@ -3,7 +3,7 @@ import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import DataTable, { type DataTableColumn } from '../../components/DataTable';
+import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
 
 /* ----------------------------------- Data ----------------------------------- */
 

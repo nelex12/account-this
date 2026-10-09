@@ -6,25 +6,20 @@ import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import DataTable, { type DataTableColumn } from '../../components/DataTable';
-import StatusBadge, { type StatusBadgeColor } from '../../components/StatusBadge';
+
+import { 
+  type ToolCondition, 
+  type Tool, 
+  type ToolRow, 
+  toolRows 
+} from '../../entities/tool/model';
+
+import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
+import StatusBadge, { type StatusBadgeColor } from '../../shared/ui/StatusBadge';
 
 /* ----------------------------------- Data ----------------------------------- */
 
-type ToolCondition = 'ok' | 'broken' | 'inspection' | 'damaged';
 type ToolFilter = 'all' | 'inStock' | 'issued' | 'faulty';
-
-interface ToolRow {
-  id: string;
-  name: string;
-  number: string;
-  category: string;
-  condition: ToolCondition;
-  location: string;
-  updated: string;
-  /** true when the tool is currently with an employee */
-  issued: boolean;
-}
 
 const conditionBadge: Record<ToolCondition, { label: string; color: StatusBadgeColor }> = {
   ok: { label: 'Исправен', color: 'success' },
@@ -38,17 +33,6 @@ const filters: { value: ToolFilter; label: string }[] = [
   { value: 'inStock', label: 'На месте' },
   { value: 'issued', label: 'На руках' },
   { value: 'faulty', label: 'Неисправные' },
-];
-
-const toolRows: ToolRow[] = [
-  { id: '1', name: 'Дрель Bosch SGB 235', number: '№0001', category: 'Электроинструмент', condition: 'ok', location: 'На месте · Стеллаж A1', updated: '02.10.2026', issued: false },
-  { id: '2', name: 'Перфоратор Bosch GBH 2-26', number: '№0142', category: 'Электроинструмент', condition: 'ok', location: 'На месте · Стеллаж A2', updated: '02.10.2026', issued: false },
-  { id: '3', name: 'Шуруповёрт Makita DDF485', number: '№0087', category: 'Аккумуляторный', condition: 'ok', location: 'На руках · Смирнова Е. В.', updated: '02.10.2026', issued: true },
-  { id: '4', name: 'Болгарка DeWalt DWE4157', number: '№0213', category: 'Электроинструмент', condition: 'ok', location: 'На месте · Стеллаж B3', updated: '02.10.2026', issued: false },
-  { id: '5', name: 'Лазерный уровень GLL 3-80', number: '№0310', category: 'Измерительный', condition: 'ok', location: 'На руках · Васильев П. Н.', updated: '02.10.2026', issued: true },
-  { id: '6', name: 'Рубанок Makita KP0800', number: '№0054', category: 'Электроинструмент', condition: 'broken', location: 'На месте · Зона ремонта', updated: '02.10.2026', issued: false },
-  { id: '7', name: 'Набор свёрл Bosch, 19 шт.', number: '№0420', category: 'Оснастка', condition: 'inspection', location: 'На руках · Смирнова Е. В.', updated: '02.10.2026', issued: true },
-  { id: '8', name: 'Лобзик Bosch PST 700', number: '№0166', category: 'Электроинструмент', condition: 'damaged', location: 'На месте · Стеллаж B1', updated: '02.10.2026', issued: false },
 ];
 
 const columns: DataTableColumn<ToolRow>[] = [
