@@ -21,7 +21,7 @@ export default function NavigationBottom() {
         bottom: 0,
         left: 0,
         right: 0,
-        zIndex: (theme) => theme.zIndex.appBar,
+        pb: 'env(safe-area-inset-bottom)'
       }}
     >
       <BottomNavigation

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from '../../app/providers/AuthProvider';
 import {
   Box,
   Card,
@@ -14,7 +15,11 @@ export default function LoginPage() {
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-  };
+  }; 
+
+  // const { loginAs } = useAuth();
+  // // in the Войти button handler:
+  // loginAs('Owner');   // change to 'Issuer' / 'Worker' to try the other layouts
 
   return (
     <Box
