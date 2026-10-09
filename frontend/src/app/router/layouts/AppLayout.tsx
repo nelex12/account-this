@@ -1,8 +1,8 @@
 // AppLayout.tsx
 import type { ReactNode } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
-import NavigationRail from '../components/NavigationRail';
-import NavigationBottom from '../components/NavigationBottom';
+import NavigationRail from '../../../shared/ui/NavigationRail';
+import NavigationBottom from '../../../shared/ui/NavigationBottom';
 
 interface AppLayoutProps {
   children: ReactNode;

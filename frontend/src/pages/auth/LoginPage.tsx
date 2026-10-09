@@ -5,23 +5,12 @@ import {
   CardContent,
   Typography,
   TextField,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
   Button,
   Link,
   Stack,
-  FormControl,
-  FormLabel,
-  Divider,
 } from '@mui/material';
 
 export default function LoginPage() {
-  const [role, setRole] = useState('Worker');
-
-  const handleRoleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setRole(event.target.value);
-  };
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();

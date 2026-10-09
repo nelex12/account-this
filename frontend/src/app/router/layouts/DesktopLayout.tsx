@@ -1,9 +1,9 @@
 // AppLayout.tsx
 import type { ReactNode } from 'react';
-import type { TopAppBarDesktopProps } from '../components/TopAppBarDesktop';
+import type { TopAppBarDesktopProps } from '../../../shared/ui/TopAppBar';
 import Box from '@mui/material/Box';
-import NavigationRail from '../components/NavigationRail';
-import TopAppBar from '../components/TopAppBarDesktop';
+import NavigationRail from '../../../shared/ui/NavigationRail';
+import TopAppBar from '../../../shared/ui/TopAppBar';
 
 interface DesktopLayoutProps {
   topBar: TopAppBarDesktopProps;
