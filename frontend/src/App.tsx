@@ -1,10 +1,12 @@
 import { Routes, Route} from 'react-router-dom';
+import { Button } from '@mui/material';
 import SignUpPage from "./pages/auth/SignUpPage.tsx";
 import LoginPage from './pages/auth/LoginPage.tsx';
 import OwnerOverviewPage from './pages/overview/OwnerOverviewPage.tsx';
 import ToolsPage from './pages/tools/ToolsPage.tsx';
 import JournalPage from './pages/journal/JournalPage.tsx';
 import UsersPage from './pages/users/UsersPage.tsx';
+import Temp from './Temp.tsx';
 
 import NavigationRail from './shared/ui/NavigationRail.tsx';
 import NavigationBottom from './shared/ui/NavigationBottom.tsx';
@@ -52,6 +54,14 @@ function App() {
               title="Пользователи" supportingText="48 сотрудников" statusLabel="В сети"
             />
             <UsersPage />
+          </AppLayout>
+        } />
+        <Route path="dialog" element ={
+          <AppLayout >
+            <TopAppBar 
+              title="Пользователи" supportingText="48 сотрудников" statusLabel="В сети"
+            />
+            <Temp />
           </AppLayout>
         } />
         
