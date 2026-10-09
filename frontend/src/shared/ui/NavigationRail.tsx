@@ -13,6 +13,10 @@ import {
 export default function NavigationRail() {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
+  // Return this!!
+  // const handleListItemClick = (index: number) => {
+  //   setSelectedIndex(index);
+  // };
   const handleListItemClick = (index: number) => {
     setSelectedIndex(index);
   };
