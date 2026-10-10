@@ -9,7 +9,10 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
-import ReactIcon from '../../assets/react.svg';
+
+import {
+  ArrowBackIcon
+} from '../Icons';
 
 export interface TopAppBarAction {
   label: string;
@@ -75,7 +78,7 @@ export default function TopAppBar({
         {/* Back button — mobile only */}
         {isMobile && onBack && (
           <IconButton edge="start" onClick={onBack} aria-label="Назад">
-            <ReactIcon />
+            <ArrowBackIcon />
           </IconButton>
         )}
 

@@ -11,7 +11,15 @@ export interface JournalRow {
   toolNumber: string;
   employee: string;
   /** Condition declared by the employee */
-  declared: string;
+  condition: Condition;
   /** Who accepted the operation ("—" if nobody yet) */
   acceptedBy: string;
+}
+
+// condition.ts
+export type ConditionColor = 'success' | 'warning' | 'error';
+
+export interface Condition {
+  label: string;
+  color: ConditionColor;
 }

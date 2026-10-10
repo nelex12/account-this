@@ -7,11 +7,12 @@ import Typography from '@mui/material/Typography';
 import InputAdornment from '@mui/material/InputAdornment';
 import SearchIcon from '@mui/icons-material/Search';
 import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable.tsx';
+import StatusBadge from '../../shared/ui/StatusBadge';
 
-import type { 
-  JournalAction, 
-  JournalFilter, 
-  JournalRow 
+import type {
+  JournalAction,
+  JournalFilter,
+  JournalRow,
 } from '../../entities/journalModel.ts';
 
 import { defaultJournalRows } from '../../mock/journal.ts';
@@ -31,7 +32,6 @@ const filters: { value: JournalFilter; label: string }[] = [
 
 /* --------------------------------- Columns ---------------------------------- */
 
-// Column widths from the design (190 / 150 / 350 / 190 / 200 / 130 px), as % of the visible columns
 const columns: DataTableColumn<JournalRow>[] = [
   {
     key: 'time',
@@ -59,7 +59,12 @@ const columns: DataTableColumn<JournalRow>[] = [
     ),
   },
   { key: 'employee', label: 'СОТРУДНИК', width: '16%', render: (row) => row.employee },
-  { key: 'declared', label: 'ЗАЯВЛЕНО', width: '17%', render: (row) => row.declared },
+  {
+    key: 'condition',
+    label: 'СОСТОЯНИЕ',
+    width: '17%',
+    render: (row) => <StatusBadge {...row.condition} />,
+  },
   { key: 'acceptedBy', label: 'ПРИНЯЛ', width: '10%', render: (row) => row.acceptedBy },
 ];
 
@@ -83,28 +88,10 @@ function pluralizeOperations(n: number): string {
 /* ----------------------------------- Page ----------------------------------- */
 
 export interface JournalPageProps {
-  /** Operations to display. Defaults to the built-in mock data. */
   rows?: JournalRow[];
-  /** Called when the user wants to open/edit an operation. */
   onEdit?: (row: JournalRow) => void;
 }
 
-/**
- * "Журнал" page body (Penpot: Journal Board → Table Board → List 1),
- * built from default MUI components only.
- *
- * Data is passed in via `rows`; when omitted the built-in mock is used so the
- * page can be dropped into a route without a data source yet.
- *
- * Layout (24px vertical gap):
- *   - Filters row: search field + filter chips
- *   - Summary line ("Сводка по проверке · N операций")
- *   - Journal table with pagination
- *
- * The top app bar is NOT included; render <TopAppBarDesktop /> above this with
- *   title="Журнал операций", supportingText="Выдача, возврат и проверка инструмента", statusLabel="В сети",
- *   secondaryAction={{ label: 'Печать/загрузка наклеек' }}, primaryAction={{ label: 'Добавить инструмент' }}
- */
 export default function JournalPage({
   rows = defaultJournalRows,
   onEdit,
@@ -172,12 +159,10 @@ export default function JournalPage({
         </Stack>
       </Stack>
 
-      {/* Summary line */}
       <Typography variant="body1" color="text.secondary">
         Сводка по проверке · {pluralizeOperations(filteredRows.length)}
       </Typography>
 
-      {/* Journal table */}
       <DataTable
         columns={columns}
         rows={pageRows}

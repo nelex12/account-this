@@ -1,14 +1,11 @@
 // AppLayout.tsx
 import type { ReactNode } from 'react';
+import { Outlet } from 'react-router-dom';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import NavigationRail from './shared/ui/NavigationRail';
 import NavigationBottom from './shared/ui/NavigationBottom';
 
-interface AppLayoutProps {
-  children: ReactNode;
-}
-
-export default function AppLayout({ children }: AppLayoutProps) {
+export default function AppLayout() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -24,7 +21,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           pb: isMobile ? 8 : 0,
         }}
       >
-        {children}
+        <Outlet />
       </Box>
 
       {isMobile && <NavigationBottom />}

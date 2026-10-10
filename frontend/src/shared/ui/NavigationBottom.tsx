@@ -1,23 +1,22 @@
-// NavigationBottom.tsx
+
 import { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+
 import {
   Paper,
   BottomNavigation,
   BottomNavigationAction,
 } from '@mui/material';
-import {
-  HomeIcon,
-  BuildIcon,
-  ListAltIcon,
-  PersonIcon,
-} from '../Icons';
+
+import { navItems } from './navItems';
 
 export default function NavigationBottom() {
-  const [selectedIndex, setSelectedIndex] = useState(0);
 
-  const handleListItemClick = (index: number) => {
-    setSelectedIndex(index);
-  };
+  const bottomItems = navItems.filter(i => i.path !== '/users'); // на мобильном 4 пункта
+
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const current = bottomItems.find(i => pathname.startsWith(i.path))?.path ?? false;
 
   return (
     <Paper
@@ -30,15 +29,10 @@ export default function NavigationBottom() {
         pb: 'env(safe-area-inset-bottom)'
       }}
     >
-      <BottomNavigation
-        showLabels
-        value={selectedIndex}
-        onChange={(_, value: number) => handleListItemClick(value)}
-      >
-        <BottomNavigationAction label="Обзор" icon={<HomeIcon />} />
-        <BottomNavigationAction label="Инструменты" icon={<BuildIcon />} />
-        <BottomNavigationAction label="Журнал" icon={<ListAltIcon />} />
-        <BottomNavigationAction label="Профиль" icon={<PersonIcon />} />
+      <BottomNavigation showLabels value={current} onChange={(_, value: string) => navigate(value)}>
+        {bottomItems.map(({ label, path, icon }) => (
+          <BottomNavigationAction key={path} label={label} value={path} icon={icon} />
+        ))}
       </BottomNavigation>
     </Paper>
   );
