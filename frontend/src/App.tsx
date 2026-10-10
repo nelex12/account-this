@@ -1,5 +1,6 @@
 import { Routes, Route} from 'react-router-dom';
-import { Button } from '@mui/material';
+
+
 import SignUpPage from "./pages/auth/SignUpPage.tsx";
 import LoginPage from './pages/auth/LoginPage.tsx';
 import OwnerOverviewPage from './pages/overview/OwnerOverviewPage.tsx';
@@ -7,18 +8,16 @@ import ToolsPage from './pages/tools/ToolsPage.tsx';
 import JournalPage from './pages/journal/JournalPage.tsx';
 import UsersPage from './pages/users/UsersPage.tsx';
 import Temp from './Temp.tsx';
-
-import NavigationRail from './shared/ui/NavigationRail.tsx';
-import NavigationBottom from './shared/ui/NavigationBottom.tsx';
 import TopAppBar from './shared/ui/TopAppBar.tsx';
+
 import DesktopLayout from './app/router/layouts/DesktopLayout.tsx';
 import MobileLayout from './app/router/layouts/MobileLayout.tsx';
 import SimpleLayout from './app/router/layouts/SimpleLayout.tsx';
 import AppLayout from './AppLayout.tsx';
-import { Stack } from '@mui/material';
-import OverviewPage from './pages/overview/overviewtry.tsx';
 
 function App() {
+
+
   return (
     <>
       <Routes>

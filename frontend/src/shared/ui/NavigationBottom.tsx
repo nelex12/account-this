@@ -5,6 +5,12 @@ import {
   BottomNavigation,
   BottomNavigationAction,
 } from '@mui/material';
+import {
+  HomeIcon,
+  BuildIcon,
+  ListAltIcon,
+  PersonIcon,
+} from '../Icons';
 
 export default function NavigationBottom() {
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -29,10 +35,10 @@ export default function NavigationBottom() {
         value={selectedIndex}
         onChange={(_, value: number) => handleListItemClick(value)}
       >
-        <BottomNavigationAction label="Обзор" />
-        <BottomNavigationAction label="Инструменты" />
-        <BottomNavigationAction label="Журнал" />
-        <BottomNavigationAction label="Профиль" />
+        <BottomNavigationAction label="Обзор" icon={<HomeIcon />} />
+        <BottomNavigationAction label="Инструменты" icon={<BuildIcon />} />
+        <BottomNavigationAction label="Журнал" icon={<ListAltIcon />} />
+        <BottomNavigationAction label="Профиль" icon={<PersonIcon />} />
       </BottomNavigation>
     </Paper>
   );

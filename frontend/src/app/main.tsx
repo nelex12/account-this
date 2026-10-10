@@ -23,9 +23,13 @@ createRoot(document.getElementById('root')!).render(
   //     </ThemeProvider>
   //   </QueryClientProvider>
   // </StrictMode>,
+  
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <ThemeProvider>
+        <CssBaseline />
+        <App />
+      </ThemeProvider>
     </BrowserRouter>
   </StrictMode>
 );
