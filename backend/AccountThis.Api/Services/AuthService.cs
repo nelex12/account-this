@@ -89,6 +89,7 @@ public class AuthService(
             return RegisterStatus.Created;
         }
         throw new NotImplementedException();
+
     }
 
     public Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
