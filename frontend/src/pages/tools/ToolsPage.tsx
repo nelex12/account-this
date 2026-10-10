@@ -6,16 +6,18 @@ import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import InputAdornment from '@mui/material/InputAdornment';
+import StatusBadge, { type StatusBadgeColor } from '../../shared/ui/StatusBadge';
+import { SearchIcon } from '../../shared/Icons';
 
 import { 
   type ToolCondition, 
   type Tool, 
-  type ToolRow, 
-  toolRows 
-} from '../../entities/tool/model';
+  type ToolRow
+} from '../../entities/toolsModel';
 
 import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
-import StatusBadge, { type StatusBadgeColor } from '../../shared/ui/StatusBadge';
+import { toolRows } from '../../mock/tools';
 
 /* ----------------------------------- Data ----------------------------------- */
 
@@ -128,10 +130,20 @@ export default function ToolsPage() {
         <>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
             <TextField
+              type="search"
               label="Название или номер"
               value={query}
               onChange={(event) => handleQueryChange(event.target.value)}
               sx={{ minWidth: 320 }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                },
+              }}
             />
 
             <Stack direction="row" spacing={1}>

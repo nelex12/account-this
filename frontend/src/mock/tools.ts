@@ -1,27 +1,4 @@
-// entities/tool/model.ts
-export type ToolCondition = 'ok' | 'broken' | 'inspection' | 'damaged';
-export interface Tool {
-  id: string;
-  name: string;
-  number: string;
-  category: string;
-  condition: ToolCondition;
-  location: string;
-  updatedAt: number;      // unix seconds, as in your spec
-  issuedTo: string | null; // replaces `issued: boolean` and the string "На руках · …"
-}
-
-export interface ToolRow {
-  id: string;
-  name: string;
-  number: string;
-  category: string;
-  condition: ToolCondition;
-  location: string;
-  updated: string;
-  /** true when the tool is currently with an employee */
-  issued: boolean;
-}
+import type { ToolRow } from "../entities/toolsModel";
 
 export const toolRows: ToolRow[] = [
   { id: '1', name: 'Дрель Bosch SGB 235', number: '№0001', category: 'Электроинструмент', condition: 'ok', location: 'На месте · Стеллаж A1', updated: '02.10.2026', issued: false },

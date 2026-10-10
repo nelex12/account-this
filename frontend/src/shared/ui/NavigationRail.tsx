@@ -10,6 +10,13 @@ import {
   Divider,
 } from '@mui/material';
 
+import { HomeIcon,
+  BuildIcon, 
+  ListAltIcon, 
+  GroupIcon, 
+  PersonIcon 
+} from '../Icons';
+
 export default function NavigationRail() {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -36,7 +43,7 @@ export default function NavigationRail() {
       {/* 1. Верхний блок — Логотип */}
       <Box sx={{ p: 2 }}>
         <Typography variant="h6" component="div">
-          LOGO
+          Account This!
         </Typography>
       </Box>
 
@@ -50,7 +57,7 @@ export default function NavigationRail() {
             onClick={() => handleListItemClick(0)}
           >
             <ListItemIcon>
-              
+              <HomeIcon />
             </ListItemIcon>
             <ListItemText primary="Обзор" />
           </ListItemButton>
@@ -62,7 +69,7 @@ export default function NavigationRail() {
             onClick={() => handleListItemClick(1)}
           >
             <ListItemIcon>
-              
+              <BuildIcon />
             </ListItemIcon>
             <ListItemText primary="Инструменты" />
           </ListItemButton>
@@ -74,7 +81,7 @@ export default function NavigationRail() {
             onClick={() => handleListItemClick(2)}
           >
             <ListItemIcon>
-              
+              <ListAltIcon />
             </ListItemIcon>
             <ListItemText primary="Журнал" />
           </ListItemButton>
@@ -86,7 +93,7 @@ export default function NavigationRail() {
             onClick={() => handleListItemClick(3)}
           >
             <ListItemIcon>
-              
+              <GroupIcon />
             </ListItemIcon>
             <ListItemText primary="Пользователи" />
           </ListItemButton>
@@ -100,7 +107,7 @@ export default function NavigationRail() {
             onClick={() => handleListItemClick(4)}
           >
             <ListItemIcon>
-              
+              <PersonIcon />
             </ListItemIcon>
             <ListItemText primary="Профиль" />
           </ListItemButton>
