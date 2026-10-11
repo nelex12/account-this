@@ -24,7 +24,8 @@ public class UsersController(IUsersService usersService) : ControllerBase
 
     /// <summary>
     /// Уволить/деактивировать пользователя своей компании (is_active = false). Повторный вызов — 200.
-    /// Выданные JWT/сертификаты не отзываются. 409 — попытка уволить самого себя.
+    /// Гасит все refresh token пользователя (все сессии). Выданный access token действует до 15 минут,
+    /// офлайн-сертификат — до 12 часов (операции после увольнения получают WORKER_DEACTIVATED). 409 — попытка уволить самого себя.
     /// </summary>
     [HttpDelete("{id}")]
     [ProducesResponseType(StatusCodes.Status200OK)]

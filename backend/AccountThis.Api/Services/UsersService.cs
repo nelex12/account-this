@@ -36,6 +36,10 @@ public class UsersService(NpgsqlDataSource dataSource) : IUsersService
 
     public Task<DeactivateUserStatus> DeactivateAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken)
     {
+        // В одной транзакции:
+        // 1. is_active = false, deactivated_at = время сервера — только если пользователь ещё не уволен
+        //    (повторное увольнение момент не меняет). Пользователь другой компании — NotFound.
+        // 2. Погасить все действующие refresh token пользователя: revoked_at = время сервера WHERE revoked_at IS NULL.
         throw new NotImplementedException();
     }
 

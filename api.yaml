@@ -11,10 +11,24 @@ info:
     задаёт смещение локальных часов.
 
     ## Авторизация
-    JWT передаётся в заголовке `Authorization: Bearer <accessToken>`. Срок действия — 12 часов.
-    Содержит id пользователя (claim `sub`), роль (claim `role`) и id его компании (claim `company_id`);
-    подписан HMAC-SHA256 (секрет `JWT_SIGNING_KEY`).
-    Отзыва нет: после увольнения выданный JWT действует до истечения срока.
+    Сессия — пара токенов, оба выдаёт `POST /api/auth/login`:
+    - **access token** — JWT в заголовке `Authorization: Bearer <accessToken>`, срок действия 15 минут.
+      Содержит id пользователя (claim `sub`), роль (claim `role`) и id его компании (claim `company_id`);
+      подписан HMAC-SHA256 (секрет `JWT_SIGNING_KEY`). Не отзывается: действует до истечения срока.
+    - **refresh token** — случайные 32 байта (base64url без паддинга, 43 символа) в cookie `refresh_token`
+      с атрибутами `HttpOnly; Secure; SameSite=Strict; Path=/api/auth`. Срок действия — 30 дней с момента выдачи.
+      JavaScript cookie не видит (XSS её не украдёт), браузер отправляет её только на `/api/auth/*`
+      и только с того же сайта. Сервер хранит не сам токен, а его SHA-256.
+
+    Access token истёк (401 от любого эндпоинта) — клиент вызывает `POST /api/auth/refresh` и получает новую пару.
+    **Ротация:** предъявленный refresh token гасится, взамен выдаётся новый с новым сроком 30 дней. Повторное
+    предъявление погашенного токена — признак кражи: гасится вся сессия (все токены цепочки), нужно войти заново.
+    `POST /api/auth/logout` завершает сессию.
+
+    **Отзыв при увольнении:** `DELETE /api/users/{id}` гасит все refresh token пользователя (все его сессии);
+    выданный access token действует до истечения — не более 15 минут. Офлайн-сертификат сотрудника
+    (`/api/auth/worker-cert`) проверяется без сервера и не отзывается, поэтому операции, совершённые после
+    увольнения, при синхронизации получают флаг WORKER_DEACTIVATED.
 
     ## Идентификаторы
     id пользователей, компаний и инструментов — UUID в каноническом виде (строчные hex, `8-4-4-4-12`). Их нельзя
@@ -60,7 +74,7 @@ info:
     - **401 / 403 / 404 / 409 от контроллера** (бизнес-проверки) — тело ProblemDetails (`application/problem+json`),
       `detail` — понятное пользователю пояснение на русском.
     - Во всех ProblemDetails есть `traceId` — идентификатор запроса для поиска в логах сервера.
-  version: 4.0.0
+  version: 5.0.0
 
 servers:
   - url: http://localhost
@@ -149,9 +163,12 @@ paths:
       operationId: Login
       summary: Вход в систему
       description: |
-        Возвращает JWT (срок действия 12 часов; содержит id пользователя, роль и id его компании).
+        Начинает сессию (см. раздел «Авторизация»): access token (JWT на 15 минут; содержит id пользователя, роль
+        и id его компании) — в теле, refresh token — в cookie `refresh_token` (заголовок `Set-Cookie`).
+        Каждый вход — новая сессия, прежние сессии пользователя (другие устройства) не затрагиваются.
         Вход разрешён только при is_approved = true и is_active = true.
         Телефон перед поиском нормализуется так же, как при регистрации. Без авторизации.
+        При 401 и 403 cookie не выставляется.
       requestBody:
         required: true
         content:
@@ -162,6 +179,9 @@ paths:
       responses:
         '200':
           description: Успешная авторизация
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetRefreshCookie'
           content:
             application/json:
               schema:
@@ -193,6 +213,75 @@ paths:
                 detail: Аккаунт ещё не подтверждён владельцем
                 traceId: 00-2f1c...-01
 
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: Refresh
+      summary: Обновление пары токенов
+      description: |
+        Принимает refresh token из cookie `refresh_token` (тела запроса нет) и выдаёт новый access token в теле
+        и новый refresh token в cookie. **Ротация:** предъявленный токен гасится; новый продолжает ту же сессию
+        и действует 30 дней с момента выдачи. Роль и компания в новом JWT — текущие, из БД.
+        Без JWT: access token к этому моменту обычно уже истёк.
+
+        401 — если cookie нет, токен неизвестен, истёк или погашен (выход, увольнение, ротация), а также если
+        аккаунт уволен (is_active = false). Причины клиенту не различаются: в любом случае нужно войти заново.
+        При 401 cookie удаляется.
+
+        Предъявлен токен, уже погашенный ротацией, — признак кражи (им воспользовались дважды: владелец и вор).
+        Гасится вся сессия, включая токен, выданный взамен; ответ 401. Сессии на других устройствах не затрагиваются.
+
+        Клиент не вызывает refresh параллельно, в том числе из нескольких вкладок: второй запрос с тем же
+        токеном выглядит как повторное предъявление и завершает сессию.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RefreshTokenCookie'
+      responses:
+        '200':
+          description: Новая пара токенов
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetRefreshCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Сессии нет или она завершена — нужно войти заново. Cookie удаляется
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/ClearRefreshCookie'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://tools.ietf.org/html/rfc9110#section-15.5.2
+                title: Unauthorized
+                status: 401
+                detail: Сессия завершена, войдите заново
+                traceId: 00-2f1c...-01
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: Logout
+      summary: Выход (завершение сессии)
+      description: |
+        Гасит refresh token из cookie `refresh_token` вместе со всей его сессией и удаляет cookie.
+        Без cookie, с неизвестным, истёкшим или уже погашенным токеном — тоже 204: результат один, сессии нет.
+        Access token не отзывается и действует до истечения срока (до 15 минут) — клиент просто забывает его.
+        Сессии на других устройствах не затрагиваются. Без JWT.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RefreshTokenCookie'
+      responses:
+        '204':
+          description: Сессия завершена, cookie удалена
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/ClearRefreshCookie'
+
   /api/auth/server-key:
     get:
       tags: [Auth]
@@ -220,6 +309,8 @@ paths:
         (workerId, fio, issuedAt, expiresAt = issuedAt + 12 часов, workerPublicKey), подписывает его своим
         приватным ключом и отдаёт сотруднику вместе с временным приватным ключом. Приватный ключ сервером
         не сохраняется. Выдаётся только при is_approved = true и is_active = true (проверяется по БД в момент запроса).
+        Выданный сертификат не отзывается (завхоз проверяет его без сервера): после увольнения сотрудника
+        его операции при синхронизации получают флаг WORKER_DEACTIVATED.
 
         **Требуется роль:** Worker.
       security:
@@ -308,8 +399,16 @@ paths:
       operationId: DeactivateUser
       summary: Уволить/Деактивировать пользователя
       description: |
-        Переводит is_active = false; запись не удаляется (на неё ссылается журнал). Повторный вызов — 200.
-        Уже выданные JWT и сертификаты не отзываются и действуют до истечения срока (не более 12 часов).
+        Переводит is_active = false и запоминает момент увольнения (время сервера); запись не удаляется
+        (на неё ссылается журнал). В той же транзакции гасит все refresh token пользователя — все его сессии
+        на всех устройствах: следующий `/api/auth/refresh` вернёт 401.
+        Повторный вызов — 200, момент увольнения не меняется.
+
+        Что продолжает действовать:
+        - выданный access token — до истечения срока, не более 15 минут;
+        - офлайн-сертификат сотрудника — до истечения срока (не более 12 часов), но операции с временем
+          не раньше момента увольнения при синхронизации получают флаг WORKER_DEACTIVATED.
+
         Owner не может уволить сам себя. Только пользователь своей компании: пользователь другой компании — 404.
 
         **Требуется роль:** Owner.
@@ -550,7 +649,8 @@ paths:
         ранее (повторная отправка после обрыва связи), повторно не создаётся — в ответе возвращается существующая.
 
         Запись принадлежит компании завхоза (company_id из JWT). Сотрудник из токена и инструмент из операции
-        ищутся только в этой компании: сотрудник другой компании неотличим от несуществующего (UNKNOWN_WORKER),
+        ищутся только в этой компании (включая уволенных сотрудников — их операции получают WORKER_DEACTIVATED,
+        если совершены не раньше момента увольнения): сотрудник другой компании неотличим от несуществующего (UNKNOWN_WORKER),
         инструмент другой компании — тоже (UNKNOWN_TOOL). Привязки worker_id и tool_id у записи заполняются
         только проверенным и найденным в компании завхоза, иначе null; чужие id в журнал не попадают.
 
@@ -656,7 +756,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT из POST /api/auth/login, срок действия 12 часов
+      description: Access token (JWT) из POST /api/auth/login или POST /api/auth/refresh, срок действия 15 минут
 
   parameters:
     Id:
@@ -667,6 +767,32 @@ components:
       schema:
         type: string
         format: uuid
+    RefreshTokenCookie:
+      name: refresh_token
+      in: cookie
+      required: false
+      description: |
+        Refresh token. Браузер отправляет cookie сам; JavaScript её не видит (HttpOnly).
+        Отсутствие cookie — не 400: обрабатывается как неизвестный токен
+      schema:
+        type: string
+        example: q8RzJ2vW0bXyL5nT3mKcA1sDfGhJkLzXcVbNm9QwErT
+
+  headers:
+    SetRefreshCookie:
+      description: |
+        Новый refresh token: `refresh_token=<токен>; Max-Age=2592000; Path=/api/auth; Secure; HttpOnly; SameSite=Strict`
+        (порядок атрибутов не важен). Max-Age — 30 дней в секундах
+      schema:
+        type: string
+      example: refresh_token=q8RzJ2vW0bXyL5nT3mKcA1sDfGhJkLzXcVbNm9QwErT; Max-Age=2592000; Path=/api/auth; Secure; HttpOnly; SameSite=Strict
+    ClearRefreshCookie:
+      description: |
+        Удаление cookie: `refresh_token` с пустым значением, тем же Path=/api/auth и истёкшим сроком
+        (`Expires` в прошлом или `Max-Age=0`)
+      schema:
+        type: string
+      example: refresh_token=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/api/auth; Secure; HttpOnly; SameSite=Strict
 
   responses:
     ValidationError:
@@ -695,7 +821,8 @@ components:
     Forbidden:
       description: |
         Роль пользователя не допускается к этому эндпоинту. Без тела.
-        Увольнение уже выданный JWT не отзывает (см. раздел «Авторизация»).
+        Уволенный пользователь с ещё не истёкшим access token получает обычные ответы до истечения его срока
+        (не более 15 минут, см. раздел «Авторизация»).
     NotFound:
       description: Объект с таким id не найден (в том числе принадлежащий другой компании)
       content:
@@ -795,11 +922,14 @@ components:
         - TIME_DRIFT — |timestamp − scannedAt| > 60 с, либо timestamp или scannedAt позже момента приёма сервером более чем на 5 минут;
         - UNKNOWN_WORKER — workerId из токена нет среди пользователей компании завхоза (сотрудник другой компании
           неотличим от несуществующего);
+        - WORKER_DEACTIVATED — сотрудник уволен, и timestamp не раньше момента увольнения (>=): офлайн-сертификат
+          не отзывается, поэтому операции после увольнения отсекаются здесь. Подделать время назад сотрудник
+          не может: scannedAt ставит завхоз, и расхождение даст TIME_DRIFT раньше;
         - UNKNOWN_TOOL — toolId из операции отсутствует в реестре компании завхоза (инструмент другой компании — тоже);
         - DUPLICATE — VALID-запись с такой же workerSignature уже есть в журнале (повторное использование QR);
           записи с другими флагами не в счёт, поэтому на один QR приходится не более одной VALID-записи;
         - VALID — все проверки пройдены.
-      enum: [VALID, INVALID_SERVER_SIG, INVALID_WORKER_SIG, EXPIRED_TOKEN, TIME_DRIFT, UNKNOWN_WORKER, UNKNOWN_TOOL, DUPLICATE]
+      enum: [VALID, INVALID_SERVER_SIG, INVALID_WORKER_SIG, EXPIRED_TOKEN, TIME_DRIFT, UNKNOWN_WORKER, WORKER_DEACTIVATED, UNKNOWN_TOOL, DUPLICATE]
 
     # ---------- Запросы и ответы ----------
 
@@ -859,12 +989,21 @@ components:
 
     LoginResponse:
       type: object
-      required: [accessToken]
+      description: |
+        Ответ входа и обновления сессии. Refresh token в тело не попадает — он в cookie (заголовок `Set-Cookie`)
+      required: [accessToken, expiresIn]
       properties:
         accessToken:
           type: string
-          description: "JWT, срок действия 12 часов; передаётся в заголовке `Authorization: Bearer <accessToken>`"
+          description: "JWT, срок действия 15 минут; передаётся в заголовке `Authorization: Bearer <accessToken>`"
           example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1Iiwicm9sZSI6Iklzc3VlciJ9.c2lnbmF0dXJl
+        expiresIn:
+          type: integer
+          format: int32
+          description: |
+            Через сколько секунд истечёт access token (900). Относительное значение не зависит от часов клиента:
+            по нему клиент может заранее вызвать `/api/auth/refresh`
+          example: 900
 
     ServerKeyResponse:
       type: object

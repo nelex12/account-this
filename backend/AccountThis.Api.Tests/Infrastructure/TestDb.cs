@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 
 namespace AccountThis.Api.Tests.Infrastructure;
@@ -13,6 +15,7 @@ public sealed record UserRow(
     bool IsActive);
 
 // SQL в обход API. Нужен там, где API для этого ещё нет (подтверждение и увольнение — блок 4)
+// или его не видно снаружи (refresh token хранится хешем, его срок — 30 дней)
 // и чтобы проверить, что именно записалось в БД. Работает со схемой database/init.sql.
 public sealed class TestDb(string connectionString)
 {
@@ -74,15 +77,77 @@ public sealed class TestDb(string connectionString)
             reader.GetBoolean(7));
     }
 
+    // Увольнение в обход API выставляет и момент увольнения (CHECK в users), но refresh token не гасит
     public async Task SetUserFlagsAsync(Guid userId, bool isApproved, bool isActive)
     {
         await using var conn = await OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "UPDATE users SET is_approved = @approved, is_active = @active WHERE id = @id", conn);
+            """
+            UPDATE users SET is_approved = @approved, is_active = @active,
+                deactivated_at = CASE WHEN @active THEN NULL ELSE floor(extract(epoch FROM now()))::BIGINT END
+            WHERE id = @id
+            """, conn);
         cmd.Parameters.AddWithValue("approved", isApproved);
         cmd.Parameters.AddWithValue("active", isActive);
         cmd.Parameters.AddWithValue("id", userId);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<long?> FindDeactivatedAtAsync(Guid userId)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand("SELECT deactivated_at FROM users WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("id", userId);
+        var value = await cmd.ExecuteScalarAsync();
+        return value is DBNull or null ? null : (long)value;
+    }
+
+    // Сдвигает момент увольнения в прошлое: так видно, перезаписал ли его повторный вызов
+    public async Task ShiftDeactivatedAtAsync(Guid userId, TimeSpan back)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE users SET deactivated_at = deactivated_at - @shift WHERE id = @id AND deactivated_at IS NOT NULL", conn);
+        cmd.Parameters.AddWithValue("shift", (long)back.TotalSeconds);
+        cmd.Parameters.AddWithValue("id", userId);
+        var updated = await cmd.ExecuteNonQueryAsync();
+        Assert.True(updated == 1, "Подготовка теста: пользователь не уволен");
+    }
+
+    // ---------- refresh_tokens ----------
+
+    // Сервер хранит SHA-256 токена; токен в cookie — base64url без паддинга
+    public static byte[] RefreshTokenHash(string refreshToken) =>
+        SHA256.HashData(Base64UrlEncoder.DecodeBytes(refreshToken));
+
+    public async Task<long> CountActiveRefreshTokensAsync(Guid userId)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "SELECT count(*) FROM refresh_tokens WHERE user_id = @id AND revoked_at IS NULL", conn);
+        cmd.Parameters.AddWithValue("id", userId);
+        return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    public async Task<bool> RefreshTokenExistsAsync(byte[] tokenHash)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM refresh_tokens WHERE token_hash = @hash)", conn);
+        cmd.Parameters.AddWithValue("hash", tokenHash);
+        return (bool)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    // Истечение срока без ожидания 30 дней: сдвигает срок токена в прошлое
+    public async Task ExpireRefreshTokenAsync(string refreshToken)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE refresh_tokens SET created_at = created_at - @shift, expires_at = expires_at - @shift WHERE token_hash = @hash",
+            conn);
+        cmd.Parameters.AddWithValue("shift", (long)TimeSpan.FromDays(31).TotalSeconds);
+        cmd.Parameters.AddWithValue("hash", RefreshTokenHash(refreshToken));
+        var updated = await cmd.ExecuteNonQueryAsync();
+        Assert.True(updated == 1, "Подготовка теста: refresh token не найден в refresh_tokens по SHA-256");
     }
 
     private async Task<NpgsqlConnection> OpenAsync()

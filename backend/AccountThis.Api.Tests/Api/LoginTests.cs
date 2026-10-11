@@ -4,15 +4,18 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using AccountThis.Api.Models;
 using AccountThis.Api.Tests.Infrastructure;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.Net.Http.Headers;
 
 namespace AccountThis.Api.Tests.Api;
 
-// POST /api/auth/login — без авторизации. 200 + JWT; 401 — неверный телефон или пароль;
+// POST /api/auth/login — без авторизации. 200 + JWT на 15 минут в теле и refresh token в cookie;
+// 401 — неверный телефон или пароль;
 // 403 — не подтверждён или уволен (только при верном пароле, иначе статус чужого аккаунта раскрывается).
 [Collection("Api")]
 public class LoginTests(ApiFactory factory)
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _client = factory.CookieClient();
     private readonly TestDb _db = factory.Db;
 
     [Fact]
@@ -33,8 +36,100 @@ public class LoginTests(ApiFactory factory)
         Assert.Equal(user.Id.ToString(), jwt.Payload.Sub);
         Assert.Equal("Owner", jwt.Payload["role"]);
         Assert.Equal(user.CompanyId.ToString(), jwt.Payload["company_id"]);
-        // Срок — 12 часов от момента входа (секунды в JWT округляются вниз)
-        Assert.InRange(jwt.ValidTo, before.AddHours(12).AddSeconds(-1), DateTime.UtcNow.AddHours(12).AddSeconds(1));
+        // Срок — 15 минут от момента входа (секунды в JWT округляются вниз)
+        Assert.InRange(jwt.ValidTo, before.AddMinutes(15).AddSeconds(-1), DateTime.UtcNow.AddMinutes(15).AddSeconds(1));
+    }
+
+    // expiresIn — относительный срок access token в секундах: клиенту не нужно сверять часы
+    [Fact]
+    public async Task Response_HasExpiresIn900()
+    {
+        var phone = TestDb.UniquePhone();
+        await _client.RegisterOwnerAsync(phone).EnsureCreated();
+
+        var response = await _client.LoginAsync(phone);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(900, body.RootElement.GetProperty("expiresIn").GetInt32());
+    }
+
+    // Refresh token — только в cookie, с атрибутами из api.yaml (SetRefreshCookie): JS его не видит,
+    // браузер шлёт его только на /api/auth/* и только с того же сайта
+    [Fact]
+    public async Task SetsRefreshCookieWithSecureAttributes()
+    {
+        var phone = TestDb.UniquePhone();
+        await _client.RegisterOwnerAsync(phone).EnsureCreated();
+
+        var response = await _client.LoginAsync(phone);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var cookie = response.RefreshSetCookie();
+        Assert.NotNull(cookie);
+        Assert.True(cookie.HttpOnly, "HttpOnly");
+        Assert.True(cookie.Secure, "Secure");
+        Assert.Equal(SameSiteMode.Strict, cookie.SameSite);
+        Assert.Equal("/api/auth", cookie.Path.Value);
+        Assert.Equal(TimeSpan.FromDays(30), cookie.MaxAge);
+
+        // 32 случайных байта в base64url без паддинга
+        var token = response.RefreshToken();
+        Assert.Matches("^[A-Za-z0-9_-]{43}$", token);
+        Assert.Equal(32, Base64UrlEncoder.DecodeBytes(token).Length);
+    }
+
+    // В теле refresh token нет: XSS не должен до него дотянуться
+    [Fact]
+    public async Task Body_DoesNotContainRefreshToken()
+    {
+        var phone = TestDb.UniquePhone();
+        await _client.RegisterOwnerAsync(phone).EnsureCreated();
+
+        var response = await _client.LoginAsync(phone);
+
+        var refreshToken = response.RefreshToken();
+        Assert.DoesNotContain(refreshToken, await response.Content.ReadAsStringAsync());
+    }
+
+    // Сервер хранит SHA-256 токена, а не сам токен: утечка таблицы не даёт войти
+    [Fact]
+    public async Task StoresOnlySha256OfRefreshToken()
+    {
+        var phone = TestDb.UniquePhone();
+        await _client.RegisterOwnerAsync(phone).EnsureCreated();
+
+        var refreshToken = await _client.LoginForRefreshTokenAsync(phone);
+
+        Assert.True(await _db.RefreshTokenExistsAsync(TestDb.RefreshTokenHash(refreshToken)));
+    }
+
+    // Каждый вход — своя сессия со своим токеном
+    [Fact]
+    public async Task EachLogin_GetsDifferentRefreshToken()
+    {
+        var phone = TestDb.UniquePhone();
+        await _client.RegisterOwnerAsync(phone).EnsureCreated();
+
+        var first = await _client.LoginForRefreshTokenAsync(phone);
+        var second = await _client.LoginForRefreshTokenAsync(phone);
+
+        Assert.NotEqual(first, second);
+    }
+
+    // Неудачный вход сессию не начинает
+    [Theory]
+    [InlineData(true, true, "wrong-password")]
+    [InlineData(false, true, AuthRequests.Password)]
+    [InlineData(true, false, AuthRequests.Password)]
+    public async Task FailedLogin_DoesNotSetRefreshCookie(bool isApproved, bool isActive, string password)
+    {
+        var (user, _) = await CreateEmployee(UserRole.Worker, isApproved, isActive);
+
+        var response = await _client.LoginAsync(user.Phone, password);
+
+        Assert.NotEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.Null(response.RefreshSetCookie());
     }
 
     // Телефон нормализуется перед поиском: вход в любом допустимом формате

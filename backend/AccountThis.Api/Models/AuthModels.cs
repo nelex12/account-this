@@ -97,9 +97,11 @@ public class LoginRequest
 
 // components.schemas.LoginResponse
 public class LoginResponse
+
 {
-    // JWT, срок действия 12 часов
+    // JWT, срок действия 15 минут
     public string AccessToken { get; set; } = string.Empty;
+    public int ExpiresIn { get; set; }
 }
 
 // components.schemas.ServerKeyResponse

@@ -16,17 +16,21 @@ flowchart LR
         Nginx["nginx · :80<br/>статика<br/>прокси /api/"]
         Backend["AccountThis.Api<br/>ASP.NET Core 8<br/>:8080, снаружи :5000"]
         Postgres[("PostgreSQL 16<br/>:5432<br/>volume postgres_data")]
+        Rabbit[("RabbitMQ 4<br/>:5672 AMQP · :15672 UI<br/>exchange accountthis.events<br/>очередь audit")]
     end
 
-    Env[/".env<br/>POSTGRES_*<br/>ключи сервера и JWT"/]
+    Env[/".env<br/>POSTGRES_* · RABBITMQ_*<br/>ключи сервера и JWT"/]
     Init[/"init.sql<br/>схема БД"/]
 
-    SPA -->|"HTTPS<br/>/api/* с JWT"| Nginx
+    SPA -->|"HTTPS<br/>/api/* с JWT,<br/>/api/auth/* с cookie refresh_token"| Nginx
     Nginx -->|"proxy_pass"| Backend
     Backend -->|"Npgsql<br/>SQL"| Postgres
+    Backend -->|"публикация событий<br/>после COMMIT"| Rabbit
+    Rabbit -.->|"потребитель audit<br/>→ audit_events"| Backend
 
     Env -.-> Backend
     Env -.-> Postgres
+    Env -.-> Rabbit
     Init -.-> Postgres
 
     classDef front fill:#1e3a5f,stroke:#4a8fd6,color:#fff
@@ -37,4 +41,4 @@ flowchart LR
     class SPA front
     class Nginx,Env,Init infra
     class Backend code
-    class Postgres,Local db
+    class Postgres,Rabbit,Local db

@@ -40,7 +40,8 @@ public class SyncService(
     {
         // 1. Разобрать все строки QrPayloadParser; хоть одна не по формату — SyncOutcome.Rejected.
         // 2. Для каждой записи — флаг по первой непройденной проверке (порядок ValidationFlag).
-        //    UNKNOWN_WORKER — workerId из токена нет в users с company_id = companyId.
+        //    UNKNOWN_WORKER — workerId из токена нет в users с company_id = companyId (уволенные — есть).
+        //    WORKER_DEACTIVATED — сотрудник уволен (deactivated_at IS NOT NULL) и timestamp >= deactivated_at.
         //    UNKNOWN_TOOL — toolId из операции нет в tools с company_id = companyId.
         //    Чужой неотличим от несуществующего. Запись сохраняется с company_id = companyId;
         //    worker_id / tool_id заполняются только проверенным и найденным в этой компании (иначе NULL —

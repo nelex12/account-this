@@ -7,7 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace AccountThis.Api.Tests.Security;
 
-// Контракт из api.yaml, раздел «Авторизация»: claims sub / role / company_id, HMAC-SHA256 с JWT_SIGNING_KEY, 12 часов
+// Контракт из api.yaml, раздел «Авторизация»: claims sub / role / company_id, HMAC-SHA256 с JWT_SIGNING_KEY, 15 минут
 public class JwtTokenServiceTests
 {
     // Время в будущем: если сервис возьмёт DateTime.UtcNow вместо TimeProvider, срок действия не совпадёт
@@ -29,11 +29,11 @@ public class JwtTokenServiceTests
     }
 
     [Fact]
-    public void Token_ExpiresIn12HoursFromTimeProvider()
+    public void Token_ExpiresIn15MinutesFromTimeProvider()
     {
         var token = Read(_service.CreateAccessToken(UserId, UserRole.Worker, CompanyId));
 
-        Assert.Equal(Now.AddHours(12).UtcDateTime, token.ValidTo);
+        Assert.Equal(Now.AddMinutes(15).UtcDateTime, token.ValidTo);
     }
 
     [Fact]
