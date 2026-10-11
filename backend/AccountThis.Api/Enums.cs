@@ -29,6 +29,7 @@ namespace AccountThis.Api.Models
     // Строка QR не по формату AT1 флага не получает: запрос /api/sync отклоняется целиком (400).
     // UNKNOWN_WORKER и UNKNOWN_TOOL — сотрудника или инструмента нет в компании завхоза
     // (из другой компании неотличимо от несуществующего).
+    // WORKER_DEACTIVATED — сотрудник уволен, и timestamp >= users.deactivated_at (офлайн-сертификат не отзывается).
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum ValidationFlag
     {
@@ -38,6 +39,7 @@ namespace AccountThis.Api.Models
         EXPIRED_TOKEN,
         TIME_DRIFT,
         UNKNOWN_WORKER,
+        WORKER_DEACTIVATED,
         UNKNOWN_TOOL,
         DUPLICATE
     }

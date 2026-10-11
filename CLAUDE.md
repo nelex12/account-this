@@ -1,12 +1,14 @@
 # AccountThis
 
 Система учёта и выдачи инструментов: ASP.NET Core 8 Web API + PostgreSQL 16 (Npgsql напрямую, без ORM),
-офлайн-протокол QR с подписями Ed25519. Учебный проект: backend пишет пользователь, Claude помогает и проверяет.
+офлайн-протокол QR с подписями Ed25519, сессии access JWT (15 мин) + refresh token в HttpOnly cookie,
+RabbitMQ (RabbitMQ.Client напрямую) для журнала аудита. Учебный проект: backend пишет пользователь, Claude помогает и проверяет.
 
 ## Источники истины
 - `api.yaml` — контракт API (статусы, тела, ошибки, форматы). При расхождении кода и `api.yaml` прав `api.yaml`.
   Файл большой: читать нужный путь/схему по `grep -n` и диапазону строк, а не целиком.
 - `database/init.sql` — схема БД с комментариями про ограничения и изоляцию компаний.
+- `docs/events.md` — контракт событий RabbitMQ (exchange, очереди, формат сообщений, поведение издателя и потребителя).
 - Комментарии в заглушках сервисов (`throw new NotImplementedException()`) описывают задуманный алгоритм.
 - `frontend/` пока пуст — не читать. `.env` не читать (секреты), шаблон — `env.example`.
 
@@ -16,7 +18,8 @@
 Сервисы возвращают enum-статусы (`RegisterStatus`, `LoginStatus`...), а не бросают исключения на бизнес-ошибки.
 
 `backend/AccountThis.Api.Tests/`: `Security/` — unit-тесты, `Api/` — интеграционные через `ApiFactory`
-(всё приложение + PostgreSQL в Testcontainers, нужен запущенный Docker).
+(всё приложение + PostgreSQL в Testcontainers, нужен запущенный Docker; с блока 7 — и RabbitMQ).
+Refresh token в тестах передаётся вручную: клиент `factory.CookieClient()`, хелперы в `Infrastructure/AuthRequests.cs`.
 
 ## Команды (пользователь работает в Visual Studio — тесты через Обозреватель тестов)
 ```
@@ -39,10 +42,13 @@ dotnet test backend/AccountThis.Api/AccountThis.Api.slnx --filter "FullyQualifie
 Каждый следующий зависит от предыдущих.
 1. `Security/` — `PasswordHasher`, `JwtTokenService`, `SignatureService` (тесты в `Tests/Security/`).
 2. Middleware в `Program.cs`: JWT Bearer, роли, 401/403 по `api.yaml` (тесты `Api/AuthenticationPipelineTests`).
-3. `AuthService`: register, login, server-key, worker-cert.
-4. `CompaniesService`, `UsersService`.
+3. `AuthService`: register, login (+ refresh token в cookie), refresh, logout, server-key, worker-cert.
+   JWT — 15 минут. Таблица `refresh_tokens`: ротация, повторное предъявление гасит сессию (тесты `Api/RefreshTests`, `Api/LogoutTests`).
+4. `CompaniesService`, `UsersService`. Увольнение пишет `deactivated_at` и гасит все refresh token пользователя
+   (тесты `Api/DeactivationRevokesSessionsTests`).
 5. `ToolsService`.
-6. `QrPayloadParser` + `SyncService` (sync, logs).
+6. `QrPayloadParser` + `SyncService` (sync, logs), включая флаг `WORKER_DEACTIVATED`.
+7. RabbitMQ: публикация событий из сервисов после COMMIT + потребитель очереди `audit` → `audit_events` (`docs/events.md`).
 
 
 ## Исключение и разделение ролей

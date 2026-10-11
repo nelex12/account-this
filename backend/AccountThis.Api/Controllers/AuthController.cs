@@ -3,6 +3,7 @@ using AccountThis.Api.Security;
 using AccountThis.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace AccountThis.Api.Controllers;
 
@@ -37,7 +38,8 @@ public class AuthController(IAuthService authService) : ControllerBase
     }
 
     /// <summary>
-    /// Вход в систему по телефону (нормализуется к +7XXXXXXXXXX) и паролю. Возвращает JWT на 12 часов.
+    /// Вход в систему по телефону (нормализуется к +7XXXXXXXXXX) и паролю. Возвращает JWT на 15 минут,
+    /// refresh token на 30 дней — в cookie refresh_token.
     /// 401 — неверный телефон/пароль; 403 — аккаунт не подтверждён или уволен. Без авторизации.
     /// </summary>
     [HttpPost("login")]
@@ -50,9 +52,23 @@ public class AuthController(IAuthService authService) : ControllerBase
     public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
     {
         var result = await authService.LoginAsync(request, cancellationToken);
+
+        if (result.Status == LoginStatus.Success)
+        {
+            var options = new CookieOptions
+            {
+                MaxAge = AuthService.RefreshTokenLifetime,
+                Path = "/api/auth",
+                Secure = true,
+                HttpOnly = true,
+                SameSite = SameSiteMode.Strict
+            };
+            Response.Cookies.Append("refresh_token", result.RefreshToken!, options);
+        }
+
         return result.Status switch
         {
-            LoginStatus.Success => new LoginResponse { AccessToken = result.AccessToken! },
+            LoginStatus.Success => new LoginResponse { AccessToken = result.AccessToken!, ExpiresIn = (int)JwtTokenService.AccessTokenLifetime.TotalSeconds },
             LoginStatus.InvalidCredentials => Problem(
                 statusCode: StatusCodes.Status401Unauthorized,
                 detail: "Неверный телефон или пароль"),

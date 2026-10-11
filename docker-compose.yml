@@ -13,6 +13,20 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 
+  # Брокер сообщений: backend публикует события аудита и сам же их потребляет (docs/events.md)
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: accountthis-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"   # AMQP
+      - "15672:15672"                   # веб-интерфейс: http://localhost:15672
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
   backend:
     build:
       context: ./backend
@@ -21,6 +35,7 @@ services:
     restart: unless-stopped
     depends_on:
       - postgres
+      - rabbitmq
     environment:
       # Строку подключения backend собирает сам из POSTGRES_* (как и при запуске из IDE).
       # Внутри сети compose база доступна по имени сервиса postgres и порту 5432
@@ -29,6 +44,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Внутри сети compose брокер доступен по имени сервиса rabbitmq и порту 5672
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       ENABLE_SWAGGER: ${ENABLE_SWAGGER:-false}
       ASPNETCORE_URLS: http://+:8080
       # Ключи сервера (см. generate-keys.bat)
@@ -50,3 +70,4 @@ services:
 
 volumes:
   postgres_data:
+  rabbitmq_data:

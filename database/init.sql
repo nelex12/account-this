@@ -24,7 +24,8 @@ CREATE TYPE validation_flag AS ENUM (
     'EXPIRED_TOKEN',
     'TIME_DRIFT',
     'UNKNOWN_WORKER', -- workerId из токена нет среди пользователей компании завхоза (чужой сотрудник неотличим от несуществующего)
-    'UNKNOWN_TOOL',   -- toolId из операции нет в реестре компании завхоза (чужой инструмент неотличим от несуществующего)
+    'WORKER_DEACTIVATED', -- сотрудник уволен, и qr_timestamp >= users.deactivated_at (офлайн-сертификат не отзывается)
+    'UNKNOWN_TOOL',  -- toolId из операции нет в реестре компании завхоза (чужой инструмент неотличим от несуществующего)
     'DUPLICATE'
 );
 
@@ -62,7 +63,14 @@ CREATE TABLE users (
     is_approved     BOOLEAN NOT NULL DEFAULT FALSE,
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,   -- FALSE = уволен; запись не удаляется
 
+    -- Unix time увольнения (время сервера), выставляется вместе с is_active = FALSE и при повторном увольнении
+    -- не меняется. По нему /api/sync отсекает операции после увольнения (флаг WORKER_DEACTIVATED)
+    deactivated_at  BIGINT,
+
     created_at      BIGINT NOT NULL DEFAULT floor(extract(epoch FROM now()))::BIGINT,   -- Unix time регистрации
+
+    -- Уволен тогда и только тогда, когда известен момент увольнения
+    CHECK (is_active = (deactivated_at IS NULL)),
 
     -- Цель составных внешних ключей rental_logs: проверяет, что пользователь записи из той же компании
     UNIQUE (id, company_id)
@@ -73,6 +81,37 @@ CREATE INDEX idx_users_company ON users (company_id);
 -- Сертификаты (token + serverSignature) отдельной таблицей не хранятся:
 -- workerId, publicKey и срок годности зашиты в сам подписанный токен,
 -- который сервер верифицирует по подписи в момент /api/sync, без обращения к БД.
+
+-- ---------- СЕССИИ (REFRESH TOKEN) ----------
+
+-- Одна строка — один выданный refresh token. Сессия — цепочка токенов одного входа (family_id):
+-- POST /api/auth/login начинает новую цепочку, каждый /api/auth/refresh гасит предъявленный токен
+-- и добавляет в цепочку новый. Действующий токен в цепочке не больше одного.
+--
+-- Хранится SHA-256 токена, а не сам токен: утечка таблицы не даёт войти. Медленный хеш (как у паролей)
+-- не нужен: токен — 32 случайных байта, подбирать нечего, а быстрый хеш позволяет искать по индексу.
+--
+-- Предъявлен погашенный токен — гасится вся цепочка (UPDATE ... WHERE family_id = ... AND revoked_at IS NULL).
+-- Если при этом погасился хоть один токен, сессия была жива, а старым токеном воспользовались повторно —
+-- признак кражи. Если нет — сессия уже была завершена (выход, увольнение), это не кража.
+-- Увольнение гасит все цепочки пользователя (DELETE /api/users/{id}).
+
+CREATE TABLE refresh_tokens (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     UUID NOT NULL REFERENCES users(id),
+    family_id   UUID NOT NULL,                  -- сессия: общий id всех токенов одного входа
+    token_hash  BYTEA NOT NULL UNIQUE,          -- SHA-256 токена (32 байта)
+    created_at  BIGINT NOT NULL,                -- Unix time выдачи
+    expires_at  BIGINT NOT NULL,                -- created_at + 30 дней; токен с expires_at <= now недействителен
+    revoked_at  BIGINT,                         -- NULL — не погашен; ротация, выход, увольнение или повтор
+
+    CHECK (octet_length(token_hash) = 32),
+    CHECK (expires_at > created_at)
+);
+
+CREATE INDEX idx_refresh_tokens_family ON refresh_tokens (family_id);
+-- Увольнение гасит действующие токены пользователя
+CREATE INDEX idx_refresh_tokens_user_active ON refresh_tokens (user_id) WHERE revoked_at IS NULL;
 
 -- ---------- ИНСТРУМЕНТЫ ----------
 
@@ -189,3 +228,24 @@ SELECT
 FROM tools t
 LEFT JOIN tool_current_holders h ON h.tool_id = t.id
 LEFT JOIN users u ON u.id = h.worker_id;
+
+-- ---------- ЖУРНАЛ СОБЫТИЙ (RabbitMQ) ----------
+-- Аудит действий в системе: кто, что и когда сделал. Контракт событий — docs/events.md.
+-- API пишет события не сюда, а в RabbitMQ (exchange accountthis.events) после фиксации своей транзакции;
+-- сюда их складывает потребитель очереди audit. API эту таблицу не читает.
+-- Доставка «хотя бы один раз»: одно событие может прийти повторно (сбой между записью и ack),
+-- поэтому event_id уникален и потребитель вставляет с ON CONFLICT (event_id) DO NOTHING.
+-- Внешних ключей нет намеренно: журнал принимает событие как есть и не зависит от состояния остальных таблиц.
+
+CREATE TABLE audit_events (
+    id           BIGSERIAL PRIMARY KEY,
+    event_id     UUID NOT NULL UNIQUE,        -- id события, его выдаёт публикующая сторона
+    type         VARCHAR(64) NOT NULL,        -- тип = routing key: user.deactivated, rental.synced, ...
+    company_id   UUID NOT NULL,               -- компания, в которой произошло событие
+    actor_id     UUID NOT NULL,               -- пользователь, чьё действие породило событие
+    occurred_at  BIGINT NOT NULL,             -- Unix time события (время сервера, опубликовавшего событие)
+    data         JSONB NOT NULL,              -- поля события, свои у каждого типа
+    received_at  BIGINT NOT NULL DEFAULT floor(extract(epoch FROM now()))::BIGINT   -- Unix time записи потребителем
+);
+
+CREATE INDEX idx_audit_events_company_time ON audit_events (company_id, occurred_at DESC);

@@ -1,6 +1,6 @@
 # AccountThis — руководство по разработке
 
-Стек: React (Vite, TypeScript) + ASP.NET Core 8 + PostgreSQL 16 + Nginx + Docker.
+Стек: React (Vite, TypeScript) + ASP.NET Core 8 + PostgreSQL 16 + RabbitMQ 4 + Nginx + Docker.
 
 ## Первичная настройка (один раз)
 
@@ -24,7 +24,8 @@
 
 Строку подключения к базе backend собирает из `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
 и адреса базы: из IDE — `localhost:POSTGRES_PORT`, в Docker — `postgres:5432` (задаёт `docker-compose.yml`).
-Отдельно строку подключения указывать не нужно.
+Отдельно строку подключения указывать не нужно. К RabbitMQ — так же: `RABBITMQ_USER`, `RABBITMQ_PASSWORD`
+и адрес из IDE `localhost:RABBITMQ_PORT`, в Docker — `rabbitmq:5672`.
 
 ## Сценарии работы
 
@@ -39,13 +40,14 @@
 
 ### Вариант Б: разработка бэкенда (C# / .NET)
 
-1. Запустите только базу: `start-db.bat` (или `docker compose up postgres -d`).
+1. Запустите базу и брокер: `start-db.bat` (или `docker compose up postgres rabbitmq -d`).
+   Веб-интерфейс RabbitMQ: http://localhost:15672 (логин и пароль — `RABBITMQ_USER` / `RABBITMQ_PASSWORD`).
 2. Откройте решение `backend/AccountThis.Api/AccountThis.Api.slnx` в Visual Studio 2022 (17.13+) или Rider
    (либо `dotnet run --project backend/AccountThis.Api`).
 3. Запустите проект профилем `AccountThis.Api`. Swagger UI откроется по адресу http://localhost:5000/swagger
 
 Backend из IDE слушает тот же порт 5000, что и backend в Docker, поэтому одновременно их не запускайте
-(`start-db.bat` поднимает только базу). Чтобы работать с фронтендом поверх backend из IDE,
+(`start-db.bat` поднимает только базу и брокер). Чтобы работать с фронтендом поверх backend из IDE,
 после шагов 1–3 запустите `npm run dev` в папке `frontend`.
 
 ### Вариант В: полная сборка всего стека
@@ -70,9 +72,11 @@ Backend из IDE слушает тот же порт 5000, что и backend в 
   - `api.yaml` — спецификация API (OpenAPI); подробная логика — в документе
     «Описание проекта подробно, используемое в разработке.docx» рядом.
 - `database/init.sql` — схема базы данных.
+- `docs/events.md` — события, которые backend публикует в RabbitMQ (журнал аудита).
+- `docs/architecture/` — схемы архитектуры (C4).
 - `frontend/` — UI на React, Vite и TypeScript; там же `nginx.conf` и `Dockerfile` для продакшен-сборки
   (Nginx раздаёт собранный фронтенд и проксирует `/api/` на backend).
-- `docker-compose.yml` — описание контейнеров: `postgres`, `backend`, `nginx`.
+- `docker-compose.yml` — описание контейнеров: `postgres`, `rabbitmq`, `backend`, `nginx`.
 - `env.example` — шаблон файла `.env`.
 - `*.bat` — скрипты быстрой автоматизации для Windows.
 
