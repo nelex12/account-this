@@ -24,11 +24,6 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
-  <!-- Схема БД для интеграционных тестов: та же, что поднимает docker-compose -->
-  <ItemGroup>
-    <None Include="..\..\database\init.sql" Link="init.sql" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\AccountThis.Api\AccountThis.Api.csproj" />
   </ItemGroup>

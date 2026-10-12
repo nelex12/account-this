@@ -1,4 +1,5 @@
 using AccountThis.Api.Configuration;
+using AccountThis.Api.Migrations;
 using AccountThis.Api.Security;
 using AccountThis.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -68,6 +69,9 @@ builder.Services.AddScoped<IToolsService, ToolsService>();
 builder.Services.AddScoped<ISyncService, SyncService>();
 
 var app = builder.Build();
+
+// Схема БД приводится к актуальной до приёма запросов (Migrations/*.sql)
+await DatabaseMigrator.MigrateAsync(dataSource, app.Logger);
 
 // Swagger включается только если явно указан флаг в переменных окружения
 var swaggerEnabled = builder.Configuration.GetValue<bool>("ENABLE_SWAGGER");

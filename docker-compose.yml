@@ -11,7 +11,12 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    # Схему создаёт backend при старте (миграции), поэтому он ждёт, пока база начнёт принимать подключения
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   # Брокер сообщений: backend публикует события аудита и сам же их потребляет (docs/events.md)
   rabbitmq:
@@ -34,8 +39,10 @@ services:
     container_name: accountthis-backend
     restart: unless-stopped
     depends_on:
-      - postgres
-      - rabbitmq
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
     environment:
       # Строку подключения backend собирает сам из POSTGRES_* (как и при запуске из IDE).
       # Внутри сети compose база доступна по имени сервиса postgres и порту 5432

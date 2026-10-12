@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Npgsql;
 using Testcontainers.PostgreSql;
 
 namespace AccountThis.Api.Tests.Infrastructure;
 
 // Поднимает приложение целиком (все middleware, контроллеры, сервисы) поверх чистой PostgreSQL в Docker.
-// Контейнер один на весь прогон (коллекция "Api"), схема — database/init.sql, как в docker-compose.
+// Контейнер один на весь прогон (коллекция "Api"). Схему создают миграции приложения при старте, как в docker-compose.
 // Нужен запущенный Docker Desktop.
 public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
@@ -22,13 +23,13 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         await _postgres.StartAsync();
 
-        var initSql = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "init.sql"));
-        var result = await _postgres.ExecScriptAsync(initSql);
-        if (result.ExitCode != 0)
-        {
-            throw new InvalidOperationException($"init.sql не применился: {result.Stderr}");
-        }
+        // Запуск приложения применяет миграции: до первого теста схема уже есть, даже если тест начинает с TestDb
+        _ = Services;
     }
+
+    // Строка подключения к другой базе того же контейнера (для тестов миграций на отдельной базе)
+    public string ConnectionStringFor(string database) =>
+        new NpgsqlConnectionStringBuilder(_postgres.GetConnectionString()) { Database = database }.ConnectionString;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
