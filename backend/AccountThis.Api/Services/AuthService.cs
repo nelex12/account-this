@@ -26,6 +26,16 @@ public enum LoginStatus
 // AccessToken и RefreshToken заполнены только при Success
 public sealed record LoginResult(LoginStatus Status, string? AccessToken = null, string? RefreshToken = null);
 
+// Причины Failed (нет токена, неизвестен, истёк, погашен, повтор, аккаунт уволен) клиенту не различаются
+public enum RefreshStatus
+{
+    Success,
+    Failed,
+}
+
+// AccessToken и RefreshToken заполнены только при Success
+public sealed record RefreshResult(RefreshStatus Status, string? AccessToken = null, string? RefreshToken = null);
+
 public enum WorkerCertStatus
 {
     Issued,
@@ -49,6 +59,13 @@ public interface IAuthService
 
     // is_approved / is_active проверяются по БД в момент запроса, а не по JWT
     Task<WorkerCertResult> IssueWorkerCertificateAsync(Guid workerId, CancellationToken cancellationToken);
+
+    // Ротация: предъявленный токен гасится, новый продолжает ту же сессию (family_id).
+    // Повторное предъявление погашенного токена гасит всю сессию. Роль и компания для JWT — из БД.
+    Task<RefreshResult> RefreshAsync(string? refreshToken, CancellationToken cancellationToken);
+
+    // Гасит всю сессию предъявленного токена. Неизвестный, пустой или уже погашенный токен — не ошибка
+    Task LogoutAsync(string? refreshToken, CancellationToken cancellationToken);
 }
 
 public class AuthService(
@@ -189,25 +206,166 @@ public class AuthService(
         // Пока reader открыт, другую команду на этом соединении выполнить нельзя
         await userReader.CloseAsync();
 
-        // Вход начинает новую сессию: новый family_id. В БД — только SHA-256 токена
+        // Вход начинает новую сессию: новый family_id
+        var refreshToken = await InsertRefreshTokenAsync(conn, null, userId, Guid.NewGuid(), cancellationToken);
+        return new LoginResult(LoginStatus.Success, jwtToken, refreshToken);
+    }
+
+    public async Task<RefreshResult> RefreshAsync(string? refreshToken, CancellationToken cancellationToken)
+    {
+        if (!TryHashRefreshToken(refreshToken, out var tokenHash))
+        {
+            return new RefreshResult(RefreshStatus.Failed);
+        }
+
+        await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
+
+        // FOR UPDATE: два одновременных обмена одного токена выполняются по очереди,
+        // второй увидит revoked_at первого и будет засчитан как повторное предъявление
+        await using var cmdFind = new NpgsqlCommand(
+            "SELECT rt.id, rt.family_id, rt.expires_at, rt.revoked_at, u.id, u.role::text, u.company_id, u.is_active " +
+            "FROM refresh_tokens rt JOIN users u ON u.id = rt.user_id " +
+            "WHERE rt.token_hash = @tokenHash " +
+            "FOR UPDATE OF rt",
+            conn,
+            transaction);
+        cmdFind.Parameters.AddWithValue("tokenHash", tokenHash);
+
+        long tokenId;
+        Guid familyId, userId, companyId;
+        long expiresAt;
+        bool isRevoked, isActive;
+        UserRole role;
+
+        await using (var reader = await cmdFind.ExecuteReaderAsync(cancellationToken))
+        {
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return new RefreshResult(RefreshStatus.Failed);
+            }
+
+            tokenId = reader.GetInt64(0);
+            familyId = reader.GetGuid(1);
+            expiresAt = reader.GetInt64(2);
+            isRevoked = !reader.IsDBNull(3);
+            userId = reader.GetGuid(4);
+            role = Enum.Parse<UserRole>(reader.GetString(5));
+            companyId = reader.GetGuid(6);
+            isActive = reader.GetBoolean(7);
+        }
+
+        var now = timeProvider.GetUtcNow().ToUnixTimeSeconds();
+
+        // Погашенный токен предъявлен снова — признак кражи: гасим всю сессию, включая выданный взамен токен.
+        // Уволенному тоже гасим: сессия ему больше не нужна
+        if (isRevoked || !isActive)
+        {
+            await RevokeFamilyAsync(conn, transaction, familyId, now, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new RefreshResult(RefreshStatus.Failed);
+        }
+
+        if (expiresAt <= now)
+        {
+            return new RefreshResult(RefreshStatus.Failed);
+        }
+
+        await using var cmdRevoke = new NpgsqlCommand(
+            "UPDATE refresh_tokens SET revoked_at = @now WHERE id = @id",
+            conn,
+            transaction);
+        cmdRevoke.Parameters.AddWithValue("now", now);
+        cmdRevoke.Parameters.AddWithValue("id", tokenId);
+        await cmdRevoke.ExecuteNonQueryAsync(cancellationToken);
+
+        var newRefreshToken = await InsertRefreshTokenAsync(conn, transaction, userId, familyId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        var accessToken = jwtTokenService.CreateAccessToken(userId, role, companyId);
+        return new RefreshResult(RefreshStatus.Success, accessToken, newRefreshToken);
+    }
+
+    public async Task LogoutAsync(string? refreshToken, CancellationToken cancellationToken)
+    {
+        if (!TryHashRefreshToken(refreshToken, out var tokenHash))
+        {
+            return;
+        }
+
+        // Гасится вся сессия, а не только предъявленный токен
+        await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE refresh_tokens SET revoked_at = @now " +
+            "WHERE family_id = (SELECT family_id FROM refresh_tokens WHERE token_hash = @tokenHash) " +
+            "AND revoked_at IS NULL",
+            conn);
+        cmd.Parameters.AddWithValue("now", timeProvider.GetUtcNow().ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("tokenHash", tokenHash);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    // Новый refresh token сессии familyId. В БД — только SHA-256 токена, клиенту — сам токен (base64url)
+    private async Task<string> InsertRefreshTokenAsync(
+        NpgsqlConnection conn, NpgsqlTransaction? transaction, Guid userId, Guid familyId, CancellationToken cancellationToken)
+    {
         byte[] refreshTokenBytes = RandomNumberGenerator.GetBytes(32);
-        byte[] refreshTokenHash = SHA256.HashData(refreshTokenBytes);
         var now = timeProvider.GetUtcNow();
 
-        await using var cmdAddRefreshToken = new NpgsqlCommand(
-                    "INSERT INTO " +
-                    "refresh_tokens (user_id, family_id, token_hash, created_at, expires_at) " +
-                    "VALUES (@userId, @familyId, @tokenHash, @createdAt, @expiresAt)",
-                    conn);
-        cmdAddRefreshToken.Parameters.AddWithValue("userId", userId);
-        cmdAddRefreshToken.Parameters.AddWithValue("familyId", Guid.NewGuid());
-        cmdAddRefreshToken.Parameters.AddWithValue("tokenHash", refreshTokenHash);
-        cmdAddRefreshToken.Parameters.AddWithValue("createdAt", now.ToUnixTimeSeconds());
-        cmdAddRefreshToken.Parameters.AddWithValue("expiresAt", (now + RefreshTokenLifetime).ToUnixTimeSeconds());
-        await cmdAddRefreshToken.ExecuteNonQueryAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand(
+            "INSERT INTO " +
+            "refresh_tokens (user_id, family_id, token_hash, created_at, expires_at) " +
+            "VALUES (@userId, @familyId, @tokenHash, @createdAt, @expiresAt)",
+            conn,
+            transaction);
+        cmd.Parameters.AddWithValue("userId", userId);
+        cmd.Parameters.AddWithValue("familyId", familyId);
+        cmd.Parameters.AddWithValue("tokenHash", SHA256.HashData(refreshTokenBytes));
+        cmd.Parameters.AddWithValue("createdAt", now.ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("expiresAt", (now + RefreshTokenLifetime).ToUnixTimeSeconds());
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
 
-        var refreshToken = WebEncoders.Base64UrlEncode(refreshTokenBytes);
-        return new LoginResult(LoginStatus.Success, jwtToken, refreshToken);
+        return WebEncoders.Base64UrlEncode(refreshTokenBytes);
+    }
+
+    private static async Task RevokeFamilyAsync(
+        NpgsqlConnection conn, NpgsqlTransaction transaction, Guid familyId, long now, CancellationToken cancellationToken)
+    {
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE refresh_tokens SET revoked_at = @now WHERE family_id = @familyId AND revoked_at IS NULL",
+            conn,
+            transaction);
+        cmd.Parameters.AddWithValue("now", now);
+        cmd.Parameters.AddWithValue("familyId", familyId);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    // Токен — base64url от 32 байт. Всё остальное (нет cookie, мусор) заведомо не найдётся в БД
+    private static bool TryHashRefreshToken(string? refreshToken, out byte[] tokenHash)
+    {
+        tokenHash = [];
+        if (string.IsNullOrEmpty(refreshToken))
+        {
+            return false;
+        }
+
+        byte[] tokenBytes;
+        try
+        {
+            tokenBytes = WebEncoders.Base64UrlDecode(refreshToken);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        if (tokenBytes.Length != 32)
+        {
+            return false;
+        }
+
+        tokenHash = SHA256.HashData(tokenBytes);
+        return true;
     }
 
     public ServerKeyResponse GetServerKey()

@@ -50,6 +50,7 @@ public class RegisterRequest : IValidatableObject
     public string? CompanyName { get; set; }
 
     // Взаимосвязь полей зависит от роли. Если Role не передана, это ошибка [Required] — здесь не дублируется.
+    // Имена полей — как в JSON: они становятся ключами errors в ответе 400
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         switch (Role)
@@ -57,12 +58,12 @@ public class RegisterRequest : IValidatableObject
             case UserRole.Owner:
                 if (string.IsNullOrWhiteSpace(CompanyName))
                 {
-                    yield return new ValidationResult("Владелец при регистрации указывает название новой компании", [nameof(CompanyName)]);
+                    yield return new ValidationResult("Владелец при регистрации указывает название новой компании", ["companyName"]);
                 }
 
                 if (CompanyId is not null)
                 {
-                    yield return new ValidationResult("Владелец создаёт новую компанию, companyId не передаётся", [nameof(CompanyId)]);
+                    yield return new ValidationResult("Владелец создаёт новую компанию, companyId не передаётся", ["companyId"]);
                 }
 
                 break;
@@ -70,12 +71,12 @@ public class RegisterRequest : IValidatableObject
             case UserRole.Worker or UserRole.Issuer:
                 if (CompanyId is null || CompanyId == Guid.Empty)
                 {
-                    yield return new ValidationResult("Укажите id компании, к которой вы присоединяетесь", [nameof(CompanyId)]);
+                    yield return new ValidationResult("Укажите id компании, к которой вы присоединяетесь", ["companyId"]);
                 }
 
                 if (CompanyName is not null)
                 {
-                    yield return new ValidationResult("Новую компанию создаёт только владелец, companyName не передаётся", [nameof(CompanyName)]);
+                    yield return new ValidationResult("Новую компанию создаёт только владелец, companyName не передаётся", ["companyName"]);
                 }
 
                 break;
