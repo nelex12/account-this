@@ -2,6 +2,7 @@ using AccountThis.Api.Configuration;
 using AccountThis.Api.Security;
 using AccountThis.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using System;
@@ -21,7 +22,9 @@ if (builder.Environment.IsDevelopment())
     builder.Configuration.AddDotEnvFile(builder.Environment.ContentRootPath);
 }
 
-builder.Services.AddControllers();
+// Ключи errors в 400 — имена полей JSON (fullName), а не свойств C# (FullName), как в api.yaml
+builder.Services.AddControllers(options =>
+    options.ModelMetadataDetailsProviders.Add(new SystemTextJsonValidationMetadataProvider()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

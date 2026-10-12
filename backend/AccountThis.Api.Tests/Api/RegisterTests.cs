@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using AccountThis.Api.Models;
 using AccountThis.Api.Tests.Infrastructure;
@@ -147,6 +148,48 @@ public class RegisterTests(ApiFactory factory)
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.True(body.RootElement.GetProperty("errors").TryGetProperty("companyId", out _));
         Assert.Null(await _db.FindUserAsync(phone));
+    }
+
+    // Ключи errors — имена полей JSON (как в запросе), чтобы клиент сопоставлял ошибки с полями формы.
+    // Ошибки связки роль/компания (IValidatableObject) проверяются только после ошибок атрибутов, поэтому отдельно
+    [Fact]
+    public async Task InvalidFields_ErrorKeysAreJsonFieldNames()
+    {
+        var response = await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            fullName = "",
+            phone = "123",
+            password = AuthRequests.Password,
+            role = "Owner",
+            companyName = "ООО Тест",
+        });
+
+        var errors = await ValidationErrors(response);
+        Assert.True(errors.TryGetProperty("fullName", out _), errors.ToString());
+        Assert.True(errors.TryGetProperty("phone", out _), errors.ToString());
+    }
+
+    [Fact]
+    public async Task OwnerWithoutCompanyName_ErrorKeyIsCompanyName()
+    {
+        var response = await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            fullName = "Петров Пётр",
+            phone = TestDb.UniquePhone(),
+            password = AuthRequests.Password,
+            role = "Owner",
+        });
+
+        var errors = await ValidationErrors(response);
+        Assert.True(errors.TryGetProperty("companyName", out _), errors.ToString());
+    }
+
+    private static async Task<JsonElement> ValidationErrors(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return body.RootElement.GetProperty("errors").Clone();
     }
 
     // {0} — 10 цифр после +7, {1}..{4} — группы 3-3-2-2
