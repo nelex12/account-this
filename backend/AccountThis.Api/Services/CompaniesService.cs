@@ -14,9 +14,18 @@ public interface ICompaniesService
 // Списка всех компаний нет: чужую компанию не узнать ни по названию, ни перебором id.
 public class CompaniesService(NpgsqlDataSource dataSource) : ICompaniesService
 {
-    public Task<Company?> GetCompanyAsync(Guid companyId, CancellationToken cancellationToken)
+    public async Task<Company?> GetCompanyAsync(Guid companyId, CancellationToken cancellationToken)
     {
-        // SELECT id, name FROM companies WHERE id = @companyId
-        throw new NotImplementedException();
+        await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand("SELECT id, name FROM companies WHERE id = @companyId", conn);
+        cmd.Parameters.AddWithValue("companyId", companyId);
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new Company { Id = reader.GetGuid(0), Name = reader.GetString(1) };
     }
 }
