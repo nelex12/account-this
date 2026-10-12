@@ -11,8 +11,7 @@ import StatusBadge, { type StatusBadgeColor } from '../../shared/ui/StatusBadge'
 import { SearchIcon } from '../../shared/Icons';
 
 import { 
-  type ToolCondition, 
-  type Tool, 
+  type ToolCondition,
   type ToolRow
 } from '../../entities/toolsModel';
 
