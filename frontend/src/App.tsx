@@ -64,8 +64,7 @@ function App() {
         <Route path="profile" element={
           <>
             <TopAppBar 
-              title="Пользователи" 
-              supportingText="48 сотрудников в компании, 3 новых заявки"
+              title="Профиль" 
               statusLabel="В сети" />
             <ProfilePage />
           </>

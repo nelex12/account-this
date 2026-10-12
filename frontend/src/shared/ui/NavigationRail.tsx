@@ -1,38 +1,52 @@
-import { useLocation, useNavigate } from 'react-router-dom';
-
+// src/app/router/layouts/NavigationRail.tsx
 import {
-  Box,
-  Typography,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Divider,
+  Box, Typography, List, ListItem, ListItemButton,
+  ListItemIcon, ListItemText, Divider,
 } from '@mui/material';
-import { navItems } from './navItems';
+import { NavLink, useLocation } from 'react-router-dom';
+import { useNavItems } from '../useNavItems';
 
 export default function NavigationRail() {
+  const items = useNavItems();
   const { pathname } = useLocation();
-  const navigate = useNavigate();
 
   return (
-    <Box sx={{ width: 240, flexShrink: 0, alignSelf: 'stretch', display: 'flex',
-               flexDirection: 'column', borderRight: 1, borderColor: 'divider' }}>
+    <Box
+      sx={{
+        width: 240,
+        flexShrink: 0,
+        alignSelf: 'stretch',
+        display: 'flex',
+        flexDirection: 'column',
+        borderRight: 1,
+        borderColor: 'divider',
+      }}
+    >
       <Box sx={{ p: 2 }}>
-        <Typography variant="h6" component="div">Account This!</Typography>
+        <Typography variant="h6" component="div">LOGO</Typography>
       </Box>
+
       <Divider />
 
       <List component="nav" sx={{ px: 1 }}>
-        {navItems.map(({ label, path, icon }) => (
-          <ListItem key={path} disablePadding>
-            <ListItemButton selected={pathname.startsWith(path)} onClick={() => navigate(path)}>
-              <ListItemIcon>{icon}</ListItemIcon>
-              <ListItemText primary={label} />
-            </ListItemButton>
-          </ListItem>
-        ))}
+        {items.map((item) => {
+          // Exact match OR nested route: "/journal" highlights on "/journal/123"
+          const isActive =
+            pathname === item.path || pathname.startsWith(item.path + '/');
+
+          return (
+            <ListItem key={item.path} disablePadding>
+              <ListItemButton
+                component={NavLink}
+                to={item.path}
+                selected={isActive}
+              >
+                <ListItemIcon>{item.icon}</ListItemIcon>
+                <ListItemText primary={item.label} />
+              </ListItemButton>
+            </ListItem>
+          );
+        })}
       </List>
     </Box>
   );

@@ -1,11 +1,16 @@
 // JournalPage.tsx
 import { useMemo, useState } from 'react';
+import { useJournal } from '../../api';
+
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import InputAdornment from '@mui/material/InputAdornment';
+import Alert from '@mui/material/Alert';
+
 import SearchIcon from '@mui/icons-material/Search';
+
 import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable.tsx';
 import StatusBadge from '../../shared/ui/StatusBadge';
 
@@ -15,7 +20,7 @@ import type {
   JournalRow,
 } from '../../entities/journalModel.ts';
 
-import { defaultJournalRows } from '../../mock/journal.ts';
+import CircularProgress from '@mui/material/CircularProgress';
 
 /* ----------------------------------- Data ----------------------------------- */
 
@@ -76,26 +81,13 @@ const filterPredicates: Record<JournalFilter, (row: JournalRow) => boolean> = {
 
 const ROWS_PER_PAGE = 8;
 
-/** "1 операция", "2 операции", "5 операций" */
-function pluralizeOperations(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${n} операция`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${n} операции`;
-  return `${n} операций`;
-}
-
-/* ----------------------------------- Page ----------------------------------- */
-
 export interface JournalPageProps {
-  rows?: JournalRow[];
   onEdit?: (row: JournalRow) => void;
 }
 
-export default function JournalPage({
-  rows = defaultJournalRows,
-  onEdit,
-}: JournalPageProps) {
+export default function JournalPage({ onEdit }: JournalPageProps) {
+  const { data: rows = [], isLoading, isError, error } = useJournal();
+
   const [filter, setFilter] = useState<JournalFilter>('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
@@ -124,15 +116,25 @@ export default function JournalPage({
     setPage(0);
   };
 
+  if (isError) {
+    return (
+      <Stack sx={{ p: 3 }}>
+        <Alert severity="error">
+          Не удалось загрузить журнал{error instanceof Error ? `: ${error.message}` : ''}
+        </Alert>
+      </Stack>
+    );
+  }
+
   return (
     <Stack spacing={3} sx={{ p: 3 }}>
-      {/* Filters: search + chips */}
+      {/* Filters: search + chips — unchanged */}
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
         <TextField
           type="search"
           label="Инструмент или сотрудник"
           value={query}
-          onChange={(event) => handleQueryChange(event.target.value)}
+          onChange={(e) => handleQueryChange(e.target.value)}
           sx={{ minWidth: 320 }}
           slotProps={{
             input: {
@@ -144,7 +146,6 @@ export default function JournalPage({
             },
           }}
         />
-
         <Stack direction="row" spacing={1}>
           {filters.map(({ value, label }) => (
             <Chip
@@ -160,20 +161,26 @@ export default function JournalPage({
       </Stack>
 
       <Typography variant="body1" color="text.secondary">
-        Сводка по проверке · {pluralizeOperations(filteredRows.length)}
+        Сводка по проверке · {(filteredRows.length)}
       </Typography>
 
-      <DataTable
-        columns={columns}
-        rows={pageRows}
-        getRowId={(row) => row.id}
-        pagination={{
-          count: filteredRows.length,
-          page,
-          rowsPerPage: ROWS_PER_PAGE,
-          onPageChange: setPage,
-        }}
-      />
+      {isLoading ? (
+        <Stack sx={{ alignItems: 'center', py: 6 }}>
+          <CircularProgress />
+        </Stack>
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={pageRows}
+          getRowId={(row) => row.id}
+          pagination={{
+            count: filteredRows.length,
+            page,
+            rowsPerPage: ROWS_PER_PAGE,
+            onPageChange: setPage,
+          }}
+        />
+      )}
     </Stack>
   );
 }

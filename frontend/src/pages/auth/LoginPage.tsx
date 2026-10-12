@@ -1,5 +1,6 @@
+// src/pages/auth/LoginPage.tsx
 import React, { useState } from 'react';
-import { useAuth } from '../../app/providers/AuthProvider';
+import { useAuth, type Role } from '../../app/providers/AuthProvider';
 import {
   Box,
   Card,
@@ -9,17 +10,37 @@ import {
   Button,
   Link,
   Stack,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 
+/* --------------------------------- Dev stub -------------------------------- */
+
+interface DevRole {
+  value: Role;
+  label: string;
+  hint: string;
+}
+
+const DEV_ROLES: DevRole[] = [
+  { value: 'Owner',  label: 'Владелец',  hint: 'Desktop-раскладка · rail слева' },
+  { value: 'Issuer', label: 'Заведующий', hint: 'Mobile-раскладка · bottom nav' },
+  { value: 'Worker', label: 'Сотрудник', hint: 'Simple-раскладка · без навигации' },
+];
+
+/* ----------------------------------- Page ---------------------------------- */
+
 export default function LoginPage() {
+  const { loginAs } = useAuth();
+  const [devRole, setDevRole] = useState<Role>('Owner');
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-  }; 
-
-  // const { loginAs } = useAuth();
-  // // in the Войти button handler:
-  // loginAs('Owner');   // change to 'Issuer' / 'Worker' to try the other layouts
+    // DEV STUB — replace with a real credential check + auth API call.
+    // For now the button just signs you in as the selected role so you can
+    // verify all three layouts and the RoleGuard wiring end-to-end.
+    loginAs(devRole);
+  };
 
   return (
     <Box
@@ -32,11 +53,9 @@ export default function LoginPage() {
         p: 2,
       }}
     >
-      {/* Главный контейнер для всей формы */}
       <Card sx={{ maxWidth: 900, width: '100%', borderRadius: 2, boxShadow: 3 }}>
         <CardContent sx={{ p: { xs: 3, md: 4 } }}>
           <form onSubmit={handleSubmit}>
-            {/* Ряд с двумя колонками (Row Container) */}
             <Box
               sx={{
                 display: 'flex',
@@ -44,10 +63,14 @@ export default function LoginPage() {
                 gap: 4,
               }}
             >
-              {/* ЛЕВАЯ КОЛОНКА: Логотип, Заголовок и 4 Поля */}
+              {/* ЛЕВАЯ КОЛОНКА: логотип, заголовок */}
               <Box sx={{ flex: 1 }}>
                 <Stack spacing={1} sx={{ mb: 3 }}>
-                  <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                  <Typography
+                    variant="overline"
+                    color="text.secondary"
+                    sx={{ fontWeight: 'bold' }}
+                  >
                     ACCOUNT THIS!
                   </Typography>
                   <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>
@@ -59,29 +82,18 @@ export default function LoginPage() {
                 </Stack>
               </Box>
 
-              {/* Вертикальный разделитель между колонками (только на десктопе) */}
-              {/*
-              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' } }} />
-              */}
-
-              {/* ПРАВАЯ КОЛОНКА: Выбор роли, Кнопка и Ссылка */}
+              {/* ПРАВАЯ КОЛОНКА: форма + dev-переключатель роли */}
               <Box
                 sx={{
                   flex: 1,
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 4
+                  gap: 3,
                 }}
               >
+                <Typography variant="body1">Заполните данные</Typography>
 
-                <Stack spacing={1} sx={{ mb: 3 }}>
-                  <Typography variant="body1" >
-                    Заполните данные
-                  </Typography>
-                </Stack>
-
-                <Stack>
-                  {/* 2. Поле Телефон */}
+                <Stack spacing={2}>
                   <TextField
                     fullWidth
                     label="Телефон"
@@ -90,7 +102,6 @@ export default function LoginPage() {
                     variant="outlined"
                   />
 
-                  {/* 3. Поле Пароль */}
                   <TextField
                     fullWidth
                     type="password"
@@ -101,15 +112,55 @@ export default function LoginPage() {
                   />
                 </Stack>
 
-                {/* Нижний блок: Кнопка и переадресация */}
-                <Stack spacing={2} sx={{ mt: { xs: 3, md: 0 } }}>
+                {/* DEV: выбор роли для входа без бэкенда */}
+                <Box
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 1,
+                    border: '1px dashed',
+                    borderColor: 'divider',
+                    bgcolor: 'action.hover',
+                  }}
+                >
+                  <Typography variant="caption" color="text.secondary">
+                    Режим разработки — выбор роли
+                  </Typography>
+
+                  <ToggleButtonGroup
+                    exclusive
+                    fullWidth
+                    size="small"
+                    value={devRole}
+                    onChange={(_, value: Role | null) => {
+                      if (value) setDevRole(value);
+                    }}
+                    sx={{ mt: 0.5 }}
+                  >
+                    {DEV_ROLES.map((role) => (
+                      <ToggleButton key={role.value} value={role.value}>
+                        {role.label}
+                      </ToggleButton>
+                    ))}
+                  </ToggleButtonGroup>
+
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ mt: 0.5, display: 'block' }}
+                  >
+                    {DEV_ROLES.find((r) => r.value === devRole)?.hint}
+                  </Typography>
+                </Box>
+
+                {/* Нижний блок: кнопка и переадресация */}
+                <Stack spacing={2}>
                   <Button type="submit" variant="contained" size="large" fullWidth>
                     Войти
                   </Button>
 
                   <Typography variant="body2" align="center" color="text.secondary">
                     Нет аккаунта?{' '}
-                    <Link href="/" underline="hover" sx={{ fontWeight: 500 }}>
+                    <Link href="/register" underline="hover" sx={{ fontWeight: 500 }}>
                       Зарегистрироваться
                     </Link>
                   </Typography>

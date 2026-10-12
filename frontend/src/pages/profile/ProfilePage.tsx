@@ -1,4 +1,4 @@
-
+// ProfilePage.tsx
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Avatar from '@mui/material/Avatar';
@@ -6,6 +6,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
@@ -15,29 +16,8 @@ import Typography from '@mui/material/Typography';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import Logout from '@mui/icons-material/Logout';
-
-/* ----------------------------------- Types ---------------------------------- */
-
-export interface ProfileData {
-  fullName: string;
-  /** Normalized phone, e.g. "+79991234567" */
-  phone: string;
-  role: string;
-  /** Mock only. Real app never has the password on the client. */
-  password: string;
-}
-
-export interface ProfilePageProps {
-  profile?: ProfileData;
-  onLogout?: () => void;
-}
-
-const defaultProfile: ProfileData = {
-  fullName: 'Петров Алексей Сергеевич',
-  phone: '+79991234567',
-  role: 'Владелец',
-  password: 'securePassword123',
-};
+import { useProfile } from '../../api';
+import { useAuth } from '../../app/providers/AuthProvider';
 
 /* --------------------------------- Helpers ---------------------------------- */
 
@@ -59,17 +39,39 @@ function initials(fullName: string): string {
 
 /* ----------------------------------- Page ----------------------------------- */
 
-export default function ProfilePage({
-  profile = defaultProfile,
-  onLogout,
-}: ProfilePageProps) {
+/**
+ * Profile page body. Data comes from `useProfile()`, logout from `useAuth()`.
+ * No props — the page owns its data and actions, consistent with the other pages.
+ */
+export default function ProfilePage() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
+  const { data: profile, isLoading, isError, error } = useProfile();
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogout = () => {
-    onLogout?.();
-    navigate('/');
+    logout();
+    navigate('/login', { replace: true });
   };
+
+  if (isLoading) {
+    return (
+      <Stack sx={{ alignItems: 'center', py: 8 }}>
+        <CircularProgress />
+      </Stack>
+    );
+  }
+
+  if (isError || !profile) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Typography color="error">
+          Не удалось загрузить профиль
+          {error instanceof Error ? `: ${error.message}` : ''}
+        </Typography>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, display: 'flex', justifyContent: 'center' }}>
@@ -77,7 +79,7 @@ export default function ProfilePage({
         <Stack spacing={3} sx={{ p: { xs: 3, md: 4 } }}>
           {/* Avatar + name + role */}
           <Stack spacing={1.5} sx={{ alignItems: 'center', textAlign: 'center' }}>
-            <Avatar sx={{ width: 96, height: 96, fontSize: 36, fontFamily: 'Montserrat' }}>
+            <Avatar sx={{ width: 96, height: 96, fontSize: 36 }}>
               {initials(profile.fullName)}
             </Avatar>
             <Typography variant="h5" component="h2">

@@ -1,12 +1,14 @@
 // OwnerOverviewPage.tsx
+import type { ReactNode } from 'react';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
+import CircularProgress from '@mui/material/CircularProgress';
+import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
 import StatusBadge from '../../shared/ui/StatusBadge';
-import type { Condition } from '../../entities/journalModel';
 import {
   BuildIcon,
   WarningAmberIcon,
@@ -15,53 +17,28 @@ import {
   InputIcon,
   HourglassEmptyIcon,
 } from '../../shared/Icons';
+import {
+  useOverview,
+  type OverviewHistoryRow,
+  type OverviewSummary,
+  type SummaryId,
+} from '../../api';
 
 /* ----------------------------------- Types ---------------------------------- */
 
-interface SummaryCardData {
-  id: string;
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  caption?: string;
-}
-
-interface HistoryRow {
-  id: string;
-  time: string;
-  toolName: string;
-  toolNumber: string;
-  action: string;
-  employee: string;
-  condition: Condition;
-}
-
-/* ----------------------------------- Data ----------------------------------- */
-
-const summaryCards: SummaryCardData[] = [
-  { id: 'registry', icon: <BuildIcon />,           label: 'Инструментов в реестре', value: 25, caption: '8 на руках' },
-  { id: 'broken',   icon: <WarningAmberIcon />,    label: 'Неисправны',             value: 7,  caption: '4 повреждены · 3 сломаны' },
-  { id: 'requests', icon: <PersonAddIcon />,       label: 'Заявки на доступ',       value: 3,  caption: '3 новые' },
-  { id: 'issued',   icon: <OutputIcon />,          label: 'Выдано сегодня',         value: 8 },
-  { id: 'accepted', icon: <InputIcon />,           label: 'Принято сегодня',        value: 3 },
-  { id: 'waiting',  icon: <HourglassEmptyIcon />,  label: 'Ожидают',                value: 8 },
-];
-
-const ok: Condition = { label: 'Исправен', color: 'success' };
-const broken: Condition = { label: 'Сломан', color: 'error' };
-
-const historyRows: HistoryRow[] = [
-  { id: '1', time: '16:42', toolName: 'Перфоратор Bosch GBH 2-26',    toolNumber: '№0142', action: 'Возврат', employee: 'Иванов И. И.',    condition: ok },
-  { id: '2', time: '16:10', toolName: 'Шуруповёрт Makita DDF485',     toolNumber: '№0087', action: 'Выдача',  employee: 'Смирнова Е. В.', condition: ok },
-  { id: '3', time: '15:35', toolName: 'Болгарка DeWalt DWE4157',      toolNumber: '№0213', action: 'Возврат', employee: 'Кузнецов Д. А.', condition: ok },
-  { id: '4', time: '14:58', toolName: 'Дрель Bosch SGB 235',          toolNumber: '№0001', action: 'Возврат', employee: 'Орлов М. К.',    condition: ok },
-  { id: '5', time: '14:20', toolName: 'Лазерный уровень GLL 3-80',    toolNumber: '№0310', action: 'Выдача',  employee: 'Васильев П. Н.', condition: ok },
-  { id: '6', time: '13:47', toolName: 'Рубанок Makita KP0800',        toolNumber: '№0054', action: 'Возврат', employee: 'Новиков С. Р.',  condition: broken },
-];
+/** Icons stay in the UI layer — the API returns only `id`, `label`, `value`, `caption`. */
+const SUMMARY_ICONS: Record<SummaryId, ReactNode> = {
+  registry: <BuildIcon />,
+  broken:   <WarningAmberIcon />,
+  requests: <PersonAddIcon />,
+  issued:   <OutputIcon />,
+  accepted: <InputIcon />,
+  waiting:  <HourglassEmptyIcon />,
+};
 
 /* --------------------------------- Columns ---------------------------------- */
 
-const columns: DataTableColumn<HistoryRow>[] = [
+const columns: DataTableColumn<OverviewHistoryRow>[] = [
   {
     key: 'time',
     label: 'ВРЕМЯ',
@@ -93,14 +70,14 @@ const columns: DataTableColumn<HistoryRow>[] = [
 
 /* -------------------------------- Components -------------------------------- */
 
-function SummaryCard({ icon, label, value, caption }: Omit<SummaryCardData, 'id'>) {
+function SummaryCard({ id, label, value, caption }: OverviewSummary) {
   return (
     <Card
       variant="outlined"
       sx={{ display: 'flex', alignItems: 'center', gap: '18px', py: 0, pl: '20px', pr: '24px', height: 110 }}
     >
       <Avatar sx={{ width: 56, height: 56, bgcolor: 'action.hover', color: 'text.secondary' }}>
-        {icon}
+        {SUMMARY_ICONS[id]}
       </Avatar>
 
       <Box sx={{ minWidth: 0 }}>
@@ -127,6 +104,9 @@ function SummaryCard({ icon, label, value, caption }: Omit<SummaryCardData, 'id'
 /**
  * Owner "Обзор" page body.
  *
+ * Data comes from `useOverview()` (react-query → `src/api/overview.ts`).
+ * No mocks or types live in this file; only the icon map, which is UI concern.
+ *
  * Layout:
  *   - 30px padding, 28px vertical gap
  *   - 3 × 2 grid of summary cards (28px gap)
@@ -134,6 +114,27 @@ function SummaryCard({ icon, label, value, caption }: Omit<SummaryCardData, 'id'
  *   - history table via shared <DataTable />
  */
 export default function OwnerOverviewPage() {
+  const { data, isLoading, isError, error } = useOverview();
+
+  if (isLoading) {
+    return (
+      <Stack sx={{ alignItems: 'center', py: 8 }}>
+        <CircularProgress />
+      </Stack>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Typography color="error">
+          Не удалось загрузить обзор
+          {error instanceof Error ? `: ${error.message}` : ''}
+        </Typography>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '28px', p: '30px' }}>
       {/* Summary cards: 3 columns × 2 rows */}
@@ -144,8 +145,8 @@ export default function OwnerOverviewPage() {
           gap: '28px',
         }}
       >
-        {summaryCards.map(({ id, ...card }) => (
-          <SummaryCard key={id} {...card} />
+        {data.summary.map((card) => (
+          <SummaryCard key={card.id} {...card} />
         ))}
       </Box>
 
@@ -162,7 +163,7 @@ export default function OwnerOverviewPage() {
       {/* History table (shared DataTable) */}
       <DataTable
         columns={columns}
-        rows={historyRows}
+        rows={data.history}
         getRowId={(row) => row.id}
       />
     </Box>

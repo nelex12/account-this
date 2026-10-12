@@ -13,23 +13,23 @@ import { router } from './router/routes';
 const queryClient = new QueryClient();
 
 createRoot(document.getElementById('root')!).render(
-  // <StrictMode>
-  //   <QueryClientProvider client={queryClient}>
-  //     <ThemeProvider>
-  //       <CssBaseline />
-  //       <AuthProvider>
-  //         <RouterProvider router={router} />
-  //       </AuthProvider>
-  //     </ThemeProvider>
-  //   </QueryClientProvider>
-  // </StrictMode>,
-  
   <StrictMode>
-    <BrowserRouter>
+    <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <CssBaseline />
-        <App />
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
       </ThemeProvider>
-    </BrowserRouter>
-  </StrictMode>
+    </QueryClientProvider>
+  </StrictMode>,
+  
+  // <StrictMode>
+  //   <BrowserRouter>
+  //     <ThemeProvider>
+  //       <CssBaseline />
+  //       <App />
+  //     </ThemeProvider>
+  //   </BrowserRouter>
+  // </StrictMode>
 );

@@ -13,6 +13,7 @@ import OwnerOverviewPage from '../../pages/overview/OwnerOverviewPage';
 import ToolsPage from '../../pages/tools/ToolsPage';
 import JournalPage from '../../pages/journal/JournalPage'; // rename JournalPage.tsx
 import UsersPage from '../../pages/users/UsersPage';
+import ProfilePage from '../../pages/profile/ProfilePage';
 
 export type Role = 'Owner' | 'Issuer' | 'Worker';
 
@@ -50,9 +51,9 @@ function OverviewByRole() {
     case 'Owner':
       return <OwnerOverviewPage />;
     case 'Issuer':
-      return <div>IssuerOverviewPage (TODO)</div>;
+      return <div>TODO</div>;
     case 'Worker':
-      return <div>WorkerOverviewPage (TODO)</div>;
+      return <div>TODO</div>;
     default:
       return <Navigate to="/login" replace />;
   }
@@ -88,7 +89,7 @@ export const router = createBrowserRouter([
           },
           {
             path: '/profile',
-            element: <div>ProfilePage (TODO)</div>,
+            element: <ProfilePage />,
             handle: { topBar: { title: 'Профиль' } } satisfies RouteHandle,
           },
 
@@ -102,7 +103,7 @@ export const router = createBrowserRouter([
                 handle: { topBar: { title: 'Инструменты', statusLabel: 'В сети' } } satisfies RouteHandle,
               },
               {
-                path: '/logs',
+                path: '/journal',
                 element: <JournalPage />,
                 handle: { topBar: { title: 'Журнал операций', statusLabel: 'В сети' } } satisfies RouteHandle,
               },
@@ -114,9 +115,9 @@ export const router = createBrowserRouter([
             element: <RoleGuard roles={['Owner']} />,
             children: [
               {
-                path: '/users',
+                path: '/journal',
                 element: <UsersPage />,
-                handle: { topBar: { title: 'Пользователи' } } satisfies RouteHandle,
+                handle: { topBar: { title: 'Пользователи', statusLabel: 'В сети' } } satisfies RouteHandle,
               },
             ],
           },

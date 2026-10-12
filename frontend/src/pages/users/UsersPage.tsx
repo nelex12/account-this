@@ -3,24 +3,27 @@ import { useMemo, useState } from 'react';
 
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
 import InputAdornment from '@mui/material/InputAdornment';
 import SearchIcon from '@mui/icons-material/Search';
 
 /* Types */
-import { 
-  type UserRole,
-  type UserStatus,
-  type UserRow,
-  type RoleFilter,
-} from '../../entities/usersModel.ts'
+import type {
+  UserRole,
+  UserStatus,
+  UserRow,
+  RoleFilter,
+} from '../../entities/usersModel.ts';
 
 import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
 
-import { defaultUserRows } from '../../mock/users.ts'
+/* API */
+import { useUsers, useAcceptUser, useDeclineUser } from '../../api';
 
 /* ----------------------------------- Data ----------------------------------- */
 
@@ -97,36 +100,22 @@ const ROWS_PER_PAGE = 8;
 /* ----------------------------------- Page ----------------------------------- */
 
 export interface UsersPageProps {
-  /** Applications to display. Defaults to the built-in mock data. */
-  rows?: UserRow[];
-  /** Approve an application. */
-  onAccept?: (row: UserRow) => void;
-  /** Reject an application. */
-  onDecline?: (row: UserRow) => void;
   /** Open the details drawer / page for an application. */
   onDetails?: (row: UserRow) => void;
 }
 
 /**
- * "Пользователи" page body (tabs + search + role filters + table),
- * built from default MUI components only.
+ * "Пользователи" page body (tabs + search + role filters + table).
  *
- * Data and row actions come in via props; sensible no-op defaults keep the page
- * working standalone while you're still wiring up a data source.
- *
- * Layout:
- *   - Tabs row: Заявки / Пользователи / Уволены
- *   - Filters row: search field + role filter chips
- *   - Users table with per-row actions and pagination
- *
- * The top app bar is NOT included; render it above this component.
+ * Data and mutations come from `src/api/users.ts` via react-query hooks.
+ * `onDetails` remains a prop because opening a drawer is a UI-navigation
+ * concern, not a data mutation.
  */
-export default function UsersPage({
-  rows = defaultUserRows,
-  onAccept,
-  onDecline,
-  onDetails,
-}: UsersPageProps) {
+export default function UsersPage({ onDetails }: UsersPageProps) {
+  const { data: rows = [], isLoading, isError, error } = useUsers();
+  const acceptUser = useAcceptUser();
+  const declineUser = useDeclineUser();
+
   const [tab, setTab] = useState(0);
   const [filter, setFilter] = useState<RoleFilter>('all');
   const [query, setQuery] = useState('');
@@ -158,12 +147,26 @@ export default function UsersPage({
   const columns = useMemo(
     () =>
       buildColumns({
-        onAccept: (row) => onAccept?.(row),
-        onDecline: (row) => onDecline?.(row),
+        onAccept: (row) => acceptUser.mutate(row.id),
+        onDecline: (row) => declineUser.mutate(row.id),
         onDetails: (row) => onDetails?.(row),
       }),
-    [onAccept, onDecline, onDetails],
+    // `acceptUser` / `declineUser` are stable refs from useMutation,
+    // but referencing `.mutate` directly would create a new fn each render,
+    // so we depend on the mutation objects themselves.
+    [acceptUser, declineUser, onDetails],
   );
+
+  if (isError) {
+    return (
+      <Stack sx={{ p: 3 }}>
+        <Typography color="error">
+          Не удалось загрузить пользователей
+          {error instanceof Error ? `: ${error.message}` : ''}
+        </Typography>
+      </Stack>
+    );
+  }
 
   return (
     <Stack spacing={3} sx={{ p: 3 }}>
@@ -213,17 +216,23 @@ export default function UsersPage({
       </Stack>
 
       {/* Users table */}
-      <DataTable
-        columns={columns}
-        rows={pageRows}
-        getRowId={(row) => row.id}
-        pagination={{
-          count: filteredRows.length,
-          page,
-          rowsPerPage: ROWS_PER_PAGE,
-          onPageChange: setPage,
-        }}
-      />
+      {isLoading ? (
+        <Stack sx={{ alignItems: 'center', py: 6 }}>
+          <CircularProgress />
+        </Stack>
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={pageRows}
+          getRowId={(row) => row.id}
+          pagination={{
+            count: filteredRows.length,
+            page,
+            rowsPerPage: ROWS_PER_PAGE,
+            onPageChange: setPage,
+          }}
+        />
+      )}
     </Stack>
   );
 }
