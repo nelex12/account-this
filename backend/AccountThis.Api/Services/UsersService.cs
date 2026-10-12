@@ -29,9 +29,32 @@ public interface IUsersService
 
 public class UsersService(NpgsqlDataSource dataSource) : IUsersService
 {
-    public Task<List<UserResponse>> GetUsersAsync(Guid companyId, CancellationToken cancellationToken)
+    public async Task<List<UserResponse>> GetUsersAsync(Guid companyId, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand(
+            "SELECT id, full_name, phone, role::text, is_approved, is_active " +
+            "FROM users WHERE company_id = @companyId " +
+            "ORDER BY created_at, id",
+            conn);
+        cmd.Parameters.AddWithValue("companyId", companyId);
+
+        var users = new List<UserResponse>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            users.Add(new UserResponse
+            {
+                Id = reader.GetGuid(0),
+                FullName = reader.GetString(1),
+                Phone = reader.GetString(2),
+                Role = Enum.Parse<UserRole>(reader.GetString(3)),
+                IsApproved = reader.GetBoolean(4),
+                IsActive = reader.GetBoolean(5),
+            });
+        }
+
+        return users;
     }
 
     public Task<DeactivateUserStatus> DeactivateAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken)
@@ -43,8 +66,16 @@ public class UsersService(NpgsqlDataSource dataSource) : IUsersService
         throw new NotImplementedException();
     }
 
-    public Task<bool> ApproveAsync(Guid companyId, Guid id, CancellationToken cancellationToken)
+    public async Task<bool> ApproveAsync(Guid companyId, Guid id, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        // company_id в WHERE — защита от BOLA: пользователь чужой компании не найдётся (0 строк — 404)
+        await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE users SET is_approved = TRUE WHERE id = @id AND company_id = @companyId",
+            conn);
+        cmd.Parameters.AddWithValue("id", id);
+        cmd.Parameters.AddWithValue("companyId", companyId);
+
+        return await cmd.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 }

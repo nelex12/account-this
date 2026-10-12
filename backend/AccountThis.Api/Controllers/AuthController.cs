@@ -55,20 +55,12 @@ public class AuthController(IAuthService authService) : ControllerBase
 
         if (result.Status == LoginStatus.Success)
         {
-            var options = new CookieOptions
-            {
-                MaxAge = AuthService.RefreshTokenLifetime,
-                Path = "/api/auth",
-                Secure = true,
-                HttpOnly = true,
-                SameSite = SameSiteMode.Strict
-            };
-            Response.Cookies.Append("refresh_token", result.RefreshToken!, options);
+            SetRefreshCookie(result.RefreshToken!);
         }
 
         return result.Status switch
         {
-            LoginStatus.Success => new LoginResponse { AccessToken = result.AccessToken!, ExpiresIn = (int)JwtTokenService.AccessTokenLifetime.TotalSeconds },
+            LoginStatus.Success => TokenResponse(result.AccessToken!),
             LoginStatus.InvalidCredentials => Problem(
                 statusCode: StatusCodes.Status401Unauthorized,
                 detail: "Неверный телефон или пароль"),
@@ -123,4 +115,69 @@ public class AuthController(IAuthService authService) : ControllerBase
         ModelState.AddModelError("companyId", "Компания с таким id не найдена");
         return ValidationProblem(ModelState);
     }
+
+    /// <summary>
+    /// Обмен refresh token из cookie на новую пару: access token в теле, refresh token в cookie (ротация).
+    /// Повторное предъявление погашенного токена завершает всю сессию.
+    /// 401 с удалением cookie — нет cookie, токен неизвестен, истёк, погашен или аккаунт уволен. Без JWT.
+    /// </summary>
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<LoginResponse>> Refresh(CancellationToken cancellationToken)
+    {
+        var result = await authService.RefreshAsync(Request.Cookies[RefreshCookieName], cancellationToken);
+
+        if (result.Status != RefreshStatus.Success)
+        {
+            ClearRefreshCookie();
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                detail: "Сессия завершена, войдите заново");
+        }
+
+        SetRefreshCookie(result.RefreshToken!);
+        return TokenResponse(result.AccessToken!);
+    }
+
+    /// <summary>
+    /// Выход: гасит сессию refresh token из cookie и удаляет cookie. Всегда 204, даже если сессии нет. Без JWT.
+    /// </summary>
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Logout(CancellationToken cancellationToken)
+    {
+        await authService.LogoutAsync(Request.Cookies[RefreshCookieName], cancellationToken);
+        ClearRefreshCookie();
+        return NoContent();
+    }
+
+    private const string RefreshCookieName = "refresh_token";
+
+    // Браузер отправляет cookie только на /api/auth/* и только с того же сайта; JavaScript её не видит
+    private static CookieOptions RefreshCookieOptions() => new()
+    {
+        Path = "/api/auth",
+        Secure = true,
+        HttpOnly = true,
+        SameSite = SameSiteMode.Strict,
+    };
+
+    private void SetRefreshCookie(string refreshToken)
+    {
+        var options = RefreshCookieOptions();
+        options.MaxAge = AuthService.RefreshTokenLifetime;
+        Response.Cookies.Append(RefreshCookieName, refreshToken, options);
+    }
+
+    // Пустое значение и Expires в прошлом, с тем же Path — иначе браузер не сопоставит cookie
+    private void ClearRefreshCookie() => Response.Cookies.Delete(RefreshCookieName, RefreshCookieOptions());
+
+    private static LoginResponse TokenResponse(string accessToken) => new()
+    {
+        AccessToken = accessToken,
+        ExpiresIn = (int)JwtTokenService.AccessTokenLifetime.TotalSeconds,
+    };
 }
