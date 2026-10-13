@@ -1,18 +1,20 @@
 // src/app/router/routes.tsx
 import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
 
-import { useAuth } from '../providers/AuthProvider'; // to be created: returns { user: { role } | null }
+import { useAuth } from '../providers/AuthProvider';
 import RoleGuard from './RoleGuard';
 import DesktopLayout from './layouts/DesktopLayout';
 import MobileLayout from './layouts/MobileLayout';
 import SimpleLayout from './layouts/SimpleLayout';
 
 import LoginPage from '../../pages/auth/LoginPage';
-import SignUpPage from '../../pages/auth/SignUpPage'; // rename SignUpPage.tsx
+import SignUpPage from '../../pages/auth/SignUpPage';
 import OwnerOverviewPage from '../../pages/overview/OwnerOverviewPage';
 import WorkerOverviewPage from '../../pages/overview/WorkerOverviewPage';
 import ToolsPage from '../../pages/tools/ToolsPage';
-import JournalPage from '../../pages/journal/JournalPage'; // rename JournalPage.tsx
+import JournalPage from '../../pages/journal/JournalPage';
 import UsersPage from '../../pages/users/UsersPage';
 import ProfilePage from '../../pages/profile/ProfilePage';
 
@@ -30,9 +32,27 @@ export interface RouteHandle {
   };
 }
 
+/** Shown while the session is being restored from the refresh cookie. */
+function AuthSplash() {
+  return (
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <CircularProgress />
+    </Box>
+  );
+}
+
 /** Picks the shell by role. Each layout renders <Outlet /> inside. */
 function LayoutByRole() {
-  const { user } = useAuth();
+  const { user, isInitialized } = useAuth();
+
+  if (!isInitialized) return <AuthSplash />;
   if (!user) return <Navigate to="/login" replace />;
 
   switch (user.role) {
@@ -48,6 +68,7 @@ function LayoutByRole() {
 /** One URL, different content per role. */
 function OverviewByRole() {
   const { user } = useAuth();
+
   switch (user?.role) {
     case 'Owner':
       return <OwnerOverviewPage />;
@@ -62,7 +83,9 @@ function OverviewByRole() {
 
 /** Already signed in? Skip the auth pages. */
 function PublicOnly() {
-  const { user } = useAuth();
+  const { user, isInitialized } = useAuth();
+
+  if (!isInitialized) return <AuthSplash />;
   return user ? <Navigate to="/overview" replace /> : <Outlet />;
 }
 
@@ -86,7 +109,9 @@ export const router = createBrowserRouter([
           {
             path: '/overview',
             element: <OverviewByRole />,
-            handle: { topBar: { title: 'Обзор', statusLabel: 'В сети' } } satisfies RouteHandle,
+            handle: {
+              topBar: { title: 'Обзор', statusLabel: 'В сети' },
+            } satisfies RouteHandle,
           },
           {
             path: '/profile',
@@ -101,12 +126,16 @@ export const router = createBrowserRouter([
               {
                 path: '/tools',
                 element: <ToolsPage />,
-                handle: { topBar: { title: 'Инструменты', statusLabel: 'В сети' } } satisfies RouteHandle,
+                handle: {
+                  topBar: { title: 'Инструменты', statusLabel: 'В сети' },
+                } satisfies RouteHandle,
               },
               {
                 path: '/journal',
                 element: <JournalPage />,
-                handle: { topBar: { title: 'Журнал операций', statusLabel: 'В сети' } } satisfies RouteHandle,
+                handle: {
+                  topBar: { title: 'Журнал операций', statusLabel: 'В сети' },
+                } satisfies RouteHandle,
               },
             ],
           },
@@ -118,7 +147,9 @@ export const router = createBrowserRouter([
               {
                 path: '/users',
                 element: <UsersPage />,
-                handle: { topBar: { title: 'Пользователи', statusLabel: 'В сети' } } satisfies RouteHandle,
+                handle: {
+                  topBar: { title: 'Пользователи', statusLabel: 'В сети' },
+                } satisfies RouteHandle,
               },
             ],
           },

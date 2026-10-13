@@ -8,14 +8,11 @@ import Card from '@mui/material/Card';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
-import IconButton from '@mui/material/IconButton';
-import InputAdornment from '@mui/material/InputAdornment';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import Visibility from '@mui/icons-material/Visibility';
-import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import Logout from '@mui/icons-material/Logout';
+
 import { useProfile } from '../../api';
 import { useAuth } from '../../app/providers/AuthProvider';
 
@@ -37,41 +34,49 @@ function initials(fullName: string): string {
     .join('');
 }
 
+/** Role code -> human-readable label */
+const ROLE_LABELS: Record<string, string> = {
+  Owner: 'Владелец',
+  Issuer: 'Заведующий',
+  Worker: 'Сотрудник',
+};
+
 /* ----------------------------------- Page ----------------------------------- */
 
-/**
- * Profile page body. Data comes from `useProfile()`, logout from `useAuth()`.
- * No props — the page owns its data and actions, consistent with the other pages.
- */
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { logout } = useAuth();
-  const { data: profile, isLoading, isError, error } = useProfile();
-  const [showPassword, setShowPassword] = useState(false);
+  const { user, logout } = useAuth();
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login', { replace: true });
+  // Phone etc. still comes from the mock/API. Name and role come from the JWT
+  // (see `useAuth`) so the page stays in sync with the actual signed-in user.
+  const { data: profile, isLoading, isError, error } = useProfile();
+
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    setLogoutError(null);
+
+    try {
+      // Hits POST /api/auth/logout (204, cookie cleared server-side).
+      // AuthProvider clears the in-memory access token in a `finally`,
+      // so even a network error leaves us safely signed out locally.
+      await logout();
+      navigate('/login', { replace: true });
+    } catch {
+      // The provider already cleared local state; only surface a hint.
+      setLogoutError('Сессия завершена локально, но сервер не ответил.');
+      navigate('/login', { replace: true });
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
-  if (isLoading) {
-    return (
-      <Stack sx={{ alignItems: 'center', py: 8 }}>
-        <CircularProgress />
-      </Stack>
-    );
-  }
-
-  if (isError || !profile) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Typography color="error">
-          Не удалось загрузить профиль
-          {error instanceof Error ? `: ${error.message}` : ''}
-        </Typography>
-      </Box>
-    );
-  }
+  // Source of truth for identity: the decoded JWT.
+  const fullName = user?.fullName || profile?.fullName || '';
+  const roleLabel = user ? (ROLE_LABELS[user.role] ?? user.role) : '';
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, display: 'flex', justifyContent: 'center' }}>
@@ -80,64 +85,67 @@ export default function ProfilePage() {
           {/* Avatar + name + role */}
           <Stack spacing={1.5} sx={{ alignItems: 'center', textAlign: 'center' }}>
             <Avatar sx={{ width: 96, height: 96, fontSize: 36 }}>
-              {initials(profile.fullName)}
+              {fullName ? initials(fullName) : '?'}
             </Avatar>
             <Typography variant="h5" component="h2">
-              {profile.fullName}
+              {fullName || 'Профиль'}
             </Typography>
-            <Chip size="small" label={profile.role} />
+            {roleLabel && <Chip size="small" label={roleLabel} />}
           </Stack>
 
           <Divider />
 
-          {/* Read-only details */}
+          {/* Read-only details (phone comes from the profile endpoint) */}
           <Stack spacing={2}>
-            <TextField
-              fullWidth
-              label="Телефон"
-              value={formatPhone(profile.phone)}
-              slotProps={{ input: { readOnly: true } }}
-            />
-
-            <TextField
-              fullWidth
-              label="Пароль"
-              type={showPassword ? 'text' : 'password'}
-              value={profile.password}
-              slotProps={{
-                input: {
-                  readOnly: true,
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        edge="end"
-                        aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
-                        onClick={() => setShowPassword((v) => !v)}
-                      >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                },
-              }}
-            />
+            {isLoading ? (
+              <Stack sx={{ alignItems: 'center', py: 2 }}>
+                <CircularProgress size={24} />
+              </Stack>
+            ) : isError || !profile ? (
+              <Typography color="error" variant="body2">
+                Не удалось загрузить контактные данные
+                {error instanceof Error ? `: ${error.message}` : ''}
+              </Typography>
+            ) : (
+              <TextField
+                fullWidth
+                label="Телефон"
+                value={formatPhone(profile.phone)}
+                slotProps={{ input: { readOnly: true } }}
+              />
+            )}
           </Stack>
 
           <Divider />
 
           {/* Actions */}
           <Stack spacing={1.5}>
-            <Button variant="outlined" size="large" fullWidth>
+            {logoutError && (
+              <Typography color="warning.main" variant="caption">
+                {logoutError}
+              </Typography>
+            )}
+
+            <Button variant="outlined" size="large" fullWidth disabled={isLoggingOut}>
               Изменить пароль
             </Button>
+
             <Button
               variant="contained"
               size="large"
               fullWidth
-              startIcon={<Logout />}
+              color="error"
+              startIcon={
+                isLoggingOut ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <Logout />
+                )
+              }
+              disabled={isLoggingOut}
               onClick={handleLogout}
             >
-              Выйти
+              {isLoggingOut ? 'Выход...' : 'Выйти'}
             </Button>
           </Stack>
         </Stack>

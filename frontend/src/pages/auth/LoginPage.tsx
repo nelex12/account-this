@@ -1,45 +1,55 @@
 // src/pages/auth/LoginPage.tsx
-import React, { useState } from 'react';
-import { useAuth, type Role } from '../../app/providers/AuthProvider';
+import { useState, type FormEvent } from 'react';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Box,
+  Button,
   Card,
   CardContent,
-  Typography,
-  TextField,
-  Button,
+  CircularProgress,
   Link,
   Stack,
-  ToggleButton,
-  ToggleButtonGroup,
+  TextField,
+  Typography,
 } from '@mui/material';
 
-/* --------------------------------- Dev stub -------------------------------- */
-
-interface DevRole {
-  value: Role;
-  label: string;
-  hint: string;
-}
-
-const DEV_ROLES: DevRole[] = [
-  { value: 'Owner',  label: 'Владелец',  hint: 'Desktop-раскладка · rail слева' },
-  { value: 'Issuer', label: 'Заведующий', hint: 'Mobile-раскладка · bottom nav' },
-  { value: 'Worker', label: 'Сотрудник', hint: 'Simple-раскладка · без навигации' },
-];
+import { ApiError } from '../../api/auth';
+import { useAuth } from '../../app/providers/AuthProvider';
 
 /* ----------------------------------- Page ---------------------------------- */
 
 export default function LoginPage() {
-  const { loginAs } = useAuth();
-  const [devRole, setDevRole] = useState<Role>('Owner');
+  const { login } = useAuth();
+  const navigate = useNavigate();
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    // DEV STUB — replace with a real credential check + auth API call.
-    // For now the button just signs you in as the selected role so you can
-    // verify all three layouts and the RoleGuard wiring end-to-end.
-    loginAs(devRole);
+    setError(null);
+
+    if (!phone.trim() || !password) {
+      setError('Введите телефон и пароль');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await login(phone.trim(), password);
+      navigate('/overview', { replace: true });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('Не удалось войти. Попробуйте позже.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -55,7 +65,7 @@ export default function LoginPage() {
     >
       <Card sx={{ maxWidth: 900, width: '100%', borderRadius: 2, boxShadow: 3 }}>
         <CardContent sx={{ p: { xs: 3, md: 4 } }}>
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} noValidate>
             <Box
               sx={{
                 display: 'flex',
@@ -73,7 +83,11 @@ export default function LoginPage() {
                   >
                     ACCOUNT THIS!
                   </Typography>
-                  <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>
+                  <Typography
+                    variant="h4"
+                    component="h1"
+                    sx={{ fontWeight: 'bold' }}
+                  >
                     Вход
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
@@ -82,7 +96,7 @@ export default function LoginPage() {
                 </Stack>
               </Box>
 
-              {/* ПРАВАЯ КОЛОНКА: форма + dev-переключатель роли */}
+              {/* ПРАВАЯ КОЛОНКА: форма */}
               <Box
                 sx={{
                   flex: 1,
@@ -91,14 +105,19 @@ export default function LoginPage() {
                   gap: 3,
                 }}
               >
-                <Typography variant="body1">Заполните данные</Typography>
+                {error && <Alert severity="error">{error}</Alert>}
 
                 <Stack spacing={2}>
                   <TextField
                     fullWidth
                     label="Телефон"
                     placeholder="+7 (000) 111-22-33"
-                    helperText="Введите номер телефона"
+                    value={phone}
+                    onChange={(e) => {
+                      setPhone(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    autoComplete="tel"
                     variant="outlined"
                   />
 
@@ -107,60 +126,44 @@ export default function LoginPage() {
                     type="password"
                     label="Пароль"
                     placeholder="••••••••••"
-                    helperText="Не менее 8 символов"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    autoComplete="current-password"
                     variant="outlined"
                   />
                 </Stack>
 
-                {/* DEV: выбор роли для входа без бэкенда */}
-                <Box
-                  sx={{
-                    p: 1.5,
-                    borderRadius: 1,
-                    border: '1px dashed',
-                    borderColor: 'divider',
-                    bgcolor: 'action.hover',
-                  }}
-                >
-                  <Typography variant="caption" color="text.secondary">
-                    Режим разработки — выбор роли
-                  </Typography>
-
-                  <ToggleButtonGroup
-                    exclusive
-                    fullWidth
-                    size="small"
-                    value={devRole}
-                    onChange={(_, value: Role | null) => {
-                      if (value) setDevRole(value);
-                    }}
-                    sx={{ mt: 0.5 }}
-                  >
-                    {DEV_ROLES.map((role) => (
-                      <ToggleButton key={role.value} value={role.value}>
-                        {role.label}
-                      </ToggleButton>
-                    ))}
-                  </ToggleButtonGroup>
-
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ mt: 0.5, display: 'block' }}
-                  >
-                    {DEV_ROLES.find((r) => r.value === devRole)?.hint}
-                  </Typography>
-                </Box>
-
-                {/* Нижний блок: кнопка и переадресация */}
                 <Stack spacing={2}>
-                  <Button type="submit" variant="contained" size="large" fullWidth>
-                    Войти
+                  <Button
+                    type="submit"
+                    variant="contained"
+                    size="large"
+                    fullWidth
+                    disabled={isSubmitting}
+                    startIcon={
+                      isSubmitting ? (
+                        <CircularProgress size={18} color="inherit" />
+                      ) : null
+                    }
+                  >
+                    {isSubmitting ? 'Вход...' : 'Войти'}
                   </Button>
 
-                  <Typography variant="body2" align="center" color="text.secondary">
+                  <Typography
+                    variant="body2"
+                    align="center"
+                    color="text.secondary"
+                  >
                     Нет аккаунта?{' '}
-                    <Link href="/register" underline="hover" sx={{ fontWeight: 500 }}>
+                    <Link
+                      component={RouterLink}
+                      to="/register"
+                      underline="hover"
+                      sx={{ fontWeight: 500 }}
+                    >
                       Зарегистрироваться
                     </Link>
                   </Typography>
