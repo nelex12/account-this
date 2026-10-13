@@ -8,6 +8,10 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import InputAdornment from '@mui/material/InputAdornment';
 import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import TablePagination from '@mui/material/TablePagination';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 
 import SearchIcon from '@mui/icons-material/Search';
 
@@ -21,6 +25,7 @@ import type {
 } from '../../entities/journalModel.ts';
 
 import CircularProgress from '@mui/material/CircularProgress';
+import JournalCard from './JournalCard';
 
 /* ----------------------------------- Data ----------------------------------- */
 
@@ -86,6 +91,10 @@ export interface JournalPageProps {
 }
 
 export default function JournalPage({ onEdit }: JournalPageProps) {
+  const theme = useTheme();
+  // Same breakpoint as AppLayout / TopAppBar: phones get cards instead of a table
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
   const { data: rows = [], isLoading, isError, error } = useJournal();
 
   const [filter, setFilter] = useState<JournalFilter>('all');
@@ -118,7 +127,7 @@ export default function JournalPage({ onEdit }: JournalPageProps) {
 
   if (isError) {
     return (
-      <Stack sx={{ p: 3 }}>
+      <Stack sx={{ p: isMobile ? 2 : 3 }}>
         <Alert severity="error">
           Не удалось загрузить журнал{error instanceof Error ? `: ${error.message}` : ''}
         </Alert>
@@ -127,15 +136,20 @@ export default function JournalPage({ onEdit }: JournalPageProps) {
   }
 
   return (
-    <Stack spacing={3} sx={{ p: 3 }}>
-      {/* Filters: search + chips — unchanged */}
-      <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+    <Stack spacing={isMobile ? 2 : 3} sx={{ p: isMobile ? 2 : 3 }}>
+      {/* Filters: search + chips */}
+      <Stack
+        direction={isMobile ? 'column' : 'row'}
+        spacing={2}
+        sx={{ alignItems: isMobile ? 'stretch' : 'center', flexWrap: 'wrap' }}
+      >
         <TextField
           type="search"
           label="Инструмент или сотрудник"
           value={query}
           onChange={(e) => handleQueryChange(e.target.value)}
-          sx={{ minWidth: 320 }}
+          fullWidth={isMobile}
+          sx={{ minWidth: isMobile ? 0 : 320 }}
           slotProps={{
             input: {
               startAdornment: (
@@ -146,7 +160,8 @@ export default function JournalPage({ onEdit }: JournalPageProps) {
             },
           }}
         />
-        <Stack direction="row" spacing={1}>
+        {/* On phones the chips scroll horizontally instead of wrapping */}
+        <Stack direction="row" spacing={1} sx={{ overflowX: isMobile ? 'auto' : 'visible', pb: isMobile ? 0.5 : 0 }}>
           {filters.map(({ value, label }) => (
             <Chip
               key={value}
@@ -168,6 +183,32 @@ export default function JournalPage({ onEdit }: JournalPageProps) {
         <Stack sx={{ alignItems: 'center', py: 6 }}>
           <CircularProgress />
         </Stack>
+      ) : isMobile ? (
+        <>
+          <Stack spacing={1.5}>
+            {pageRows.map((row) => (
+              <JournalCard key={row.id} row={row} />
+            ))}
+
+            {pageRows.length === 0 && (
+              <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
+                Ничего не найдено
+              </Typography>
+            )}
+          </Stack>
+
+          <Box>
+            <TablePagination
+              component="div"
+              count={filteredRows.length}
+              page={page}
+              rowsPerPage={ROWS_PER_PAGE}
+              rowsPerPageOptions={[]}
+              onPageChange={(_, nextPage) => setPage(nextPage)}
+              labelDisplayedRows={({ from, to, count }) => `${from}–${to} из ${count}`}
+            />
+          </Box>
+        </>
       ) : (
         <DataTable
           columns={columns}

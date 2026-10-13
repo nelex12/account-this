@@ -10,6 +10,7 @@ import SimpleLayout from './layouts/SimpleLayout';
 import LoginPage from '../../pages/auth/LoginPage';
 import SignUpPage from '../../pages/auth/SignUpPage'; // rename SignUpPage.tsx
 import OwnerOverviewPage from '../../pages/overview/OwnerOverviewPage';
+import WorkerOverviewPage from '../../pages/overview/WorkerOverviewPage';
 import ToolsPage from '../../pages/tools/ToolsPage';
 import JournalPage from '../../pages/journal/JournalPage'; // rename JournalPage.tsx
 import UsersPage from '../../pages/users/UsersPage';
@@ -53,7 +54,7 @@ function OverviewByRole() {
     case 'Issuer':
       return <div>TODO</div>;
     case 'Worker':
-      return <div>TODO</div>;
+      return <WorkerOverviewPage />;
     default:
       return <Navigate to="/login" replace />;
   }
@@ -115,7 +116,7 @@ export const router = createBrowserRouter([
             element: <RoleGuard roles={['Owner']} />,
             children: [
               {
-                path: '/journal',
+                path: '/users',
                 element: <UsersPage />,
                 handle: { topBar: { title: 'Пользователи', statusLabel: 'В сети' } } satisfies RouteHandle,
               },

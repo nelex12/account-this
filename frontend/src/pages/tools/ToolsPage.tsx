@@ -7,27 +7,23 @@ import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import InputAdornment from '@mui/material/InputAdornment';
-import StatusBadge, { type StatusBadgeColor } from '../../shared/ui/StatusBadge';
+import Box from '@mui/material/Box';
+import TablePagination from '@mui/material/TablePagination';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
+import StatusBadge from '../../shared/ui/StatusBadge';
 import { SearchIcon } from '../../shared/Icons';
 
-import { 
-  type ToolCondition,
-  type ToolRow
-} from '../../entities/toolsModel';
+import { type ToolRow } from '../../entities/toolsModel';
 
 import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
 import { toolRows } from '../../mock/tools';
+import ToolCard from './ToolCard';
+import { conditionBadge } from './toolCondition';
 
 /* ----------------------------------- Data ----------------------------------- */
 
 type ToolFilter = 'all' | 'inStock' | 'issued' | 'faulty';
-
-const conditionBadge: Record<ToolCondition, { label: string; color: StatusBadgeColor }> = {
-  ok: { label: 'Исправен', color: 'success' },
-  broken: { label: 'Сломан', color: 'error' },
-  inspection: { label: 'На проверке', color: 'warning' },
-  damaged: { label: 'Поврежден', color: 'error' },
-};
 
 const filters: { value: ToolFilter; label: string }[] = [
   { value: 'all', label: 'Все' },
@@ -92,6 +88,10 @@ const ROWS_PER_PAGE = 8;
  *   secondaryAction={{ label: 'Печать/загрузка наклеек' }}, primaryAction={{ label: 'Добавить инструмент' }}
  */
 export default function ToolsPage() {
+  const theme = useTheme();
+  // Same breakpoint as AppLayout / TopAppBar: phones get cards instead of a table
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
   const [tab, setTab] = useState(0);
   const [filter, setFilter] = useState<ToolFilter>('all');
   const [query, setQuery] = useState('');
@@ -119,7 +119,7 @@ export default function ToolsPage() {
   };
 
   return (
-    <Stack spacing={3} sx={{ p: 3 }}>
+    <Stack spacing={isMobile ? 2 : 3} sx={{ p: isMobile ? 2 : 3 }}>
       <Tabs value={tab} onChange={(_, value: number) => setTab(value)}>
         <Tab label="Таблица" />
         <Tab label="Стенд" />
@@ -127,13 +127,18 @@ export default function ToolsPage() {
 
       {tab === 0 && (
         <>
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+          <Stack
+            direction={isMobile ? 'column' : 'row'}
+            spacing={2}
+            sx={{ alignItems: isMobile ? 'stretch' : 'center', flexWrap: 'wrap' }}
+          >
             <TextField
               type="search"
               label="Название или номер"
               value={query}
               onChange={(event) => handleQueryChange(event.target.value)}
-              sx={{ minWidth: 320 }}
+              fullWidth={isMobile}
+              sx={{ minWidth: isMobile ? 0 : 320 }}
               slotProps={{
                 input: {
                   startAdornment: (
@@ -145,7 +150,8 @@ export default function ToolsPage() {
               }}
             />
 
-            <Stack direction="row" spacing={1}>
+            {/* On phones the chips scroll horizontally instead of wrapping */}
+            <Stack direction="row" spacing={1} sx={{ overflowX: isMobile ? 'auto' : 'visible', pb: isMobile ? 0.5 : 0 }}>
               {filters.map(({ value, label }) => (
                 <Chip
                   key={value}
@@ -159,17 +165,45 @@ export default function ToolsPage() {
             </Stack>
           </Stack>
 
-          <DataTable
-            columns={columns}
-            rows={pageRows}
-            getRowId={(row) => row.id}
-            pagination={{
-              count: filteredRows.length,
-              page,
-              rowsPerPage: ROWS_PER_PAGE,
-              onPageChange: setPage,
-            }}
-          />
+          {isMobile ? (
+            <>
+              <Stack spacing={1.5}>
+                {pageRows.map((row) => (
+                  <ToolCard key={row.id} row={row} />
+                ))}
+
+                {pageRows.length === 0 && (
+                  <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
+                    Ничего не найдено
+                  </Typography>
+                )}
+              </Stack>
+
+              <Box>
+                <TablePagination
+                  component="div"
+                  count={filteredRows.length}
+                  page={page}
+                  rowsPerPage={ROWS_PER_PAGE}
+                  rowsPerPageOptions={[]}
+                  onPageChange={(_, nextPage) => setPage(nextPage)}
+                  labelDisplayedRows={({ from, to, count }) => `${from}–${to} из ${count}`}
+                />
+              </Box>
+            </>
+          ) : (
+            <DataTable
+              columns={columns}
+              rows={pageRows}
+              getRowId={(row) => row.id}
+              pagination={{
+                count: filteredRows.length,
+                page,
+                rowsPerPage: ROWS_PER_PAGE,
+                onPageChange: setPage,
+              }}
+            />
+          )}
         </>
       )}
     </Stack>
