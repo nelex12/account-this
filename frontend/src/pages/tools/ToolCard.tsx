@@ -1,46 +1,65 @@
-// ToolCard.tsx — one tool as a card (mobile replacement for a ToolsPage table row)
+// src/pages/tools/ToolCard.tsx
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
+
 import StatusBadge from '../../shared/ui/StatusBadge';
-import type { ToolRow } from '../../entities/toolsModel';
+import {
+  formatUnix,
+  getToolLocation,
+  isIssued,
+  type Tool,
+} from '../../entities/toolsModel';
 import { conditionBadge } from './toolCondition';
 
 export interface ToolCardProps {
-  row: ToolRow;
+  tool: Tool;
   /** When provided, the whole card is tappable and opens the details. */
-  onDetails?: (row: ToolRow) => void;
+  onDetails?: (tool: Tool) => void;
 }
 
-export default function ToolCard({ row, onDetails }: ToolCardProps) {
+export default function ToolCard({ tool, onDetails }: ToolCardProps) {
+  const issued = isIssued(tool);
+
   const content = (
     <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-      {/* Name + number on the left, condition on the right */}
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
+      {/* Name on the left, condition on the right */}
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}
+      >
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="subtitle2" sx={{ wordBreak: 'break-word' }}>
-            {row.name}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {row.number} · {row.category}
+            {tool.name}
           </Typography>
         </Box>
         <Box sx={{ flexShrink: 0 }}>
-          <StatusBadge {...conditionBadge[row.condition]} />
+          <StatusBadge {...conditionBadge[tool.condition]} />
         </Box>
       </Stack>
 
-      {/* Location + last update */}
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
-        <Typography variant="body2" sx={{ fontWeight: row.issued ? 500 : 400 }}>
-          {row.location}
+      {/* Location + heldSince */}
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{ alignItems: 'baseline', justifyContent: 'space-between' }}
+      >
+        <Typography variant="body2" sx={{ fontWeight: issued ? 500 : 400 }}>
+          {getToolLocation(tool)}
         </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-          {row.updated}
-        </Typography>
+        {tool.heldSince !== null && (
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ flexShrink: 0 }}
+          >
+            {formatUnix(tool.heldSince)}
+          </Typography>
+        )}
       </Stack>
     </CardContent>
   );
@@ -48,7 +67,7 @@ export default function ToolCard({ row, onDetails }: ToolCardProps) {
   return (
     <Card variant="outlined">
       {onDetails ? (
-        <CardActionArea onClick={() => onDetails(row)}>{content}</CardActionArea>
+        <CardActionArea onClick={() => onDetails(tool)}>{content}</CardActionArea>
       ) : (
         content
       )}

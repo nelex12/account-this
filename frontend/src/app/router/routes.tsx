@@ -27,6 +27,7 @@ export type Role = 'Owner' | 'Issuer' | 'Worker';
 export interface RouteHandle {
   topBar?: {
     title: string;
+    primaryAction?: string;
     supportingText?: string;
     statusLabel?: string;
   };
@@ -127,7 +128,7 @@ export const router = createBrowserRouter([
                 path: '/tools',
                 element: <ToolsPage />,
                 handle: {
-                  topBar: { title: 'Инструменты', statusLabel: 'В сети' },
+                  topBar: { title: 'Инструменты', primaryAction: 'Добавить инструмент',statusLabel: 'В сети' },
                 } satisfies RouteHandle,
               },
               {
