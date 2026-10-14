@@ -1,63 +1,97 @@
 // src/api/users.ts
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { UserRow } from '../entities/usersModel';
+import { toUserRow, type UserDto, type UserRow } from '../entities/usersModel';
+import { ApiError } from './auth';
+import { apiFetch } from './http';
 import { queryKeys } from './queryKeys';
 
-/* --------------------------------- Mocks ----------------------------------- */
+/* --------------------------------- helpers --------------------------------- */
 
-const mockUsers: UserRow[] = [
-  { id: '1',  applicant: 'Иванов И. И.',    phone: '+7 900 123-45-67', role: 'сотрудник',  status: 'ожидает',   requestedAt: '01.10.2026' },
-  { id: '2',  applicant: 'Петров П. П.',    phone: '+7 900 234-56-78', role: 'заведующий', status: 'одобрена',  requestedAt: '02.10.2026' },
-  { id: '3',  applicant: 'Сидоров С. С.',   phone: '+7 900 345-67-89', role: 'владелец',   status: 'отклонена', requestedAt: '02.10.2026' },
-  { id: '4',  applicant: 'Кузнецова А. А.', phone: '+7 900 456-78-90', role: 'сотрудник',  status: 'ожидает',   requestedAt: '03.10.2026' },
-  { id: '5',  applicant: 'Смирнова Е. В.',  phone: '+7 900 567-89-01', role: 'сотрудник',  status: 'одобрена',  requestedAt: '03.10.2026' },
-  { id: '6',  applicant: 'Кузнецов Д. А.',  phone: '+7 900 678-90-12', role: 'заведующий', status: 'отклонена', requestedAt: '04.10.2026' },
-  { id: '7',  applicant: 'Орлов М. К.',     phone: '+7 900 789-01-23', role: 'сотрудник',  status: 'ожидает',   requestedAt: '05.10.2026' },
-  { id: '8',  applicant: 'Васильев П. Н.',  phone: '+7 900 890-12-34', role: 'владелец',   status: 'одобрена',  requestedAt: '06.10.2026' },
-  { id: '9',  applicant: 'Новиков С. Р.',   phone: '+7 900 901-23-45', role: 'сотрудник',  status: 'отклонена', requestedAt: '06.10.2026' },
-  { id: '10', applicant: 'Козлов Т. Е.',    phone: '+7 900 012-34-56', role: 'заведующий', status: 'ожидает',   requestedAt: '07.10.2026' },
-];
+/** ProblemDetails.detail (Russian, meant for the user) if the body has one. */
+async function readDetail(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { detail?: unknown };
+    return typeof body.detail === 'string' ? body.detail : undefined;
+  } catch {
+    return undefined; // 401/403 from the JWT layer come without a body
+  }
+}
+
+async function failFrom(response: Response, fallback: string): Promise<never> {
+  const detail = await readDetail(response);
+  if (response.status === 403 && !detail) {
+    throw new ApiError('Нет доступа: действие доступно только владельцу', 403);
+  }
+  throw new ApiError(detail ?? `${fallback} (${response.status})`, response.status);
+}
 
 /* ------------------------------- Raw functions ------------------------------ */
 
+/** GET /api/users — Owner only, users of the caller's company (incl. pending and fired). */
 export async function getUsers(): Promise<UserRow[]> {
-  await new Promise((r) => setTimeout(r, 300));
-  return mockUsers;
+  const response = await apiFetch('/api/users');
+  if (!response.ok) return failFrom(response, 'Не удалось загрузить пользователей');
+  return ((await response.json()) as UserDto[]).map(toUserRow);
 }
 
-/** TODO: replace with `POST /api/users/:id/accept` */
-export async function acceptUser(id: string): Promise<void> {
-  await new Promise((r) => setTimeout(r, 200));
-  console.log('acceptUser', id);
+/** POST /api/users/{id}/approve — 200 without body, repeat call is also 200. */
+export async function approveUser(id: string): Promise<void> {
+  const response = await apiFetch(`/api/users/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+  });
+  if (!response.ok) return failFrom(response, 'Не удалось подтвердить пользователя');
 }
 
-/** TODO: replace with `POST /api/users/:id/decline` */
-export async function declineUser(id: string): Promise<void> {
-  await new Promise((r) => setTimeout(r, 200));
-  console.log('declineUser', id);
+/**
+ * DELETE /api/users/{id} — deactivates (is_active = false) and revokes all sessions.
+ * Irreversible: there is no reactivation endpoint. Used for both
+ * "reject an application" and "fire". 409 = tried to fire yourself.
+ */
+export async function deactivateUser(id: string): Promise<void> {
+  const response = await apiFetch(`/api/users/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) return failFrom(response, 'Не удалось деактивировать пользователя');
+}
+
+export interface Company {
+  id: string;
+  name: string;
+}
+
+/** GET /api/companies/my — the id the Owner gives to new employees/issuers. */
+export async function getMyCompany(): Promise<Company> {
+  const response = await apiFetch('/api/companies/my');
+  if (!response.ok) return failFrom(response, 'Не удалось загрузить компанию');
+  return (await response.json()) as Company;
 }
 
 /* ---------------------------------- Hooks ----------------------------------- */
 
 export function useUsers() {
+  return useQuery({ queryKey: queryKeys.users, queryFn: getUsers });
+}
+
+export function useMyCompany() {
   return useQuery({
-    queryKey: queryKeys.users,
-    queryFn: getUsers,
+    queryKey: queryKeys.company,
+    queryFn: getMyCompany,
+    staleTime: Infinity, // company id never changes
   });
 }
 
-export function useAcceptUser() {
+export function useApproveUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: acceptUser,
+    mutationFn: approveUser,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.users }),
   });
 }
 
-export function useDeclineUser() {
+export function useDeactivateUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: declineUser,
+    mutationFn: deactivateUser,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.users }),
   });
 }
