@@ -18,6 +18,7 @@ import {
   type AuthSession,
 } from '../../api/auth';
 import { registerAuthBridge } from '../../api/authBridge';
+import { apiFetch } from '../../api/http';
 import { isRole, type AuthUser, type Role } from '../../entities/authModel';
 
 // Re-exported so existing `import { Role } from '.../AuthProvider'` keeps working.
@@ -162,7 +163,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     registerAuthBridge({
       getToken: () => sessionRef.current?.token ?? null,
       refresh: doRefresh,
+      signOut: clearSession,
     });
+  }, [doRefresh, clearSession]);
+
+  /* DEV only: console helpers to check the refresh flow without waiting 15 min.
+       __auth.breakAccessToken()  -> next API call gets 401, refreshes, replays
+       __auth.refreshNow()        -> force a refresh right now
+       __auth.fetch('/api/...')   -> apiFetch (what all API calls should use)
+       __auth.token()             -> current access token */
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+
+    const w = window as unknown as { __auth?: Record<string, unknown> };
+    w.__auth = {
+      breakAccessToken: () => {
+        // Only the ref is touched, so the UI keeps the user signed in while the
+        // next request carries a garbage token.
+        if (sessionRef.current) {
+          sessionRef.current = { ...sessionRef.current, token: 'broken.token.value' };
+        }
+      },
+      refreshNow: doRefresh,
+      fetch: apiFetch,
+      token: () => sessionRef.current?.token ?? null,
+    };
+
+    return () => {
+      delete w.__auth;
+    };
   }, [doRefresh]);
 
   /* 1. Restore session on first mount using the refresh cookie. */

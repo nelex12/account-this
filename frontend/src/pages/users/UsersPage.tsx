@@ -1,161 +1,195 @@
 // UsersPage.tsx
 import { useMemo, useState } from 'react';
 
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
+import InputAdornment from '@mui/material/InputAdornment';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import InputAdornment from '@mui/material/InputAdornment';
 import SearchIcon from '@mui/icons-material/Search';
 
-/* Types */
-import type {
-  UserRole,
-  UserStatus,
-  UserRow,
-  RoleFilter,
+import {
+  formatPhone,
+  type RoleFilter,
+  type UserRole,
+  type UserRow,
+  type UserStatus,
 } from '../../entities/usersModel.ts';
 
 import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
-
-/* API */
-import { useUsers, useAcceptUser, useDeclineUser } from '../../api';
+import { useAuth } from '../../app/providers/AuthProvider';
+import {
+  useApproveUser,
+  useDeactivateUser,
+  useMyCompany,
+  useUsers,
+} from '../../api';
 
 /* ----------------------------------- Data ----------------------------------- */
 
-const tabs = ['Заявки', 'Пользователи', 'Уволены'] as const;
+/** Tab order = index of `tab` state. */
+const tabs: { label: string; status: UserStatus }[] = [
+  { label: 'Заявки', status: 'pending' },
+  { label: 'Пользователи', status: 'active' },
+  { label: 'Уволены', status: 'fired' },
+];
 
 const filters: { value: RoleFilter; label: string }[] = [
   { value: 'all', label: 'Все' },
-  { value: 'сотрудник', label: 'Сотрудник' },
-  { value: 'заведующий', label: 'Заведующий' },
-  { value: 'владелец', label: 'Владелец' },
+  { value: 'Worker', label: 'Сотрудник' },
+  { value: 'Issuer', label: 'Завхоз' },
+  { value: 'Owner', label: 'Владелец' },
 ];
 
 const roleLabel: Record<UserRole, string> = {
-  сотрудник: 'Сотрудник',
-  заведующий: 'Заведующий',
-  владелец: 'Владелец',
+  Worker: 'Сотрудник',
+  Issuer: 'Завхоз',
+  Owner: 'Владелец',
 };
 
 const statusLabel: Record<UserStatus, string> = {
-  ожидает: 'Ожидает',
-  одобрена: 'Одобрена',
-  отклонена: 'Отклонена',
-};
-
-/* --------------------------------- Columns ---------------------------------- */
-
-interface RowActions {
-  onAccept: (row: UserRow) => void;
-  onDecline: (row: UserRow) => void;
-  onDetails: (row: UserRow) => void;
-}
-
-// Column widths from the design (Заявитель / Телефон / Роль / Статус / Дата заявки / Действия),
-// as % of the visible columns
-const buildColumns = (actions: RowActions): DataTableColumn<UserRow>[] => [
-  { key: 'applicant', label: 'ЗАЯВИТЕЛЬ',   width: '20%', render: (row) => row.applicant },
-  { key: 'phone',     label: 'ТЕЛЕФОН',     width: '16%', render: (row) => row.phone },
-  { key: 'role',      label: 'РОЛЬ',        width: '14%', render: (row) => roleLabel[row.role] },
-  { key: 'status',    label: 'СТАТУС',      width: '13%', render: (row) => statusLabel[row.status] },
-  { key: 'requested', label: 'ДАТА ЗАЯВКИ', width: '13%', render: (row) => row.requestedAt },
-  {
-    key: 'actions',
-    label: 'ДЕЙСТВИЯ',
-    width: '24%',
-    render: (row) => (
-      <Stack direction="row" spacing={1}>
-        {row.status === 'ожидает' && (
-          <>
-            <Button size="small" onClick={() => actions.onAccept(row)}>
-              Принять
-            </Button>
-            <Button size="small" color="error" onClick={() => actions.onDecline(row)}>
-              Отклонить
-            </Button>
-          </>
-        )}
-        <Button size="small" onClick={() => actions.onDetails(row)}>
-          Подробнее
-        </Button>
-      </Stack>
-    ),
-  },
-];
-
-const filterPredicates: Record<RoleFilter, (row: UserRow) => boolean> = {
-  all: () => true,
-  сотрудник: (row) => row.role === 'сотрудник',
-  заведующий: (row) => row.role === 'заведующий',
-  владелец: (row) => row.role === 'владелец',
+  pending: 'Ожидает',
+  active: 'Активен',
+  fired: 'Уволен',
 };
 
 const ROWS_PER_PAGE = 8;
 
+/* --------------------------------- Columns ---------------------------------- */
+
+interface RowActions {
+  /** id of the signed-in Owner: the server forbids firing yourself (409) */
+  currentUserId?: string;
+  busyId?: string;
+  onApprove: (row: UserRow) => void;
+  /** Rejecting an application and firing both deactivate the user. */
+  onDeactivate: (row: UserRow) => void;
+  onDetails?: (row: UserRow) => void;
+}
+
+const buildColumns = (a: RowActions): DataTableColumn<UserRow>[] => [
+  { key: 'fullName', label: 'ФИО',     width: '28%', render: (row) => row.fullName },
+  { key: 'phone',    label: 'ТЕЛЕФОН', width: '18%', render: (row) => formatPhone(row.phone) },
+  { key: 'role',     label: 'РОЛЬ',    width: '15%', render: (row) => roleLabel[row.role] },
+  { key: 'status',   label: 'СТАТУС',  width: '13%', render: (row) => statusLabel[row.status] },
+  {
+    key: 'actions',
+    label: 'ДЕЙСТВИЯ',
+    width: '26%',
+    render: (row) => {
+      const busy = a.busyId === row.id;
+      const isSelf = row.id === a.currentUserId;
+      return (
+        <Stack direction="row" spacing={1}>
+          {row.status === 'pending' && (
+            <>
+              <Button size="small" disabled={busy} onClick={() => a.onApprove(row)}>
+                Принять
+              </Button>
+              <Button size="small" color="error" disabled={busy} onClick={() => a.onDeactivate(row)}>
+                Отклонить
+              </Button>
+            </>
+          )}
+          {row.status === 'active' && !isSelf && (
+            <Button size="small" color="error" disabled={busy} onClick={() => a.onDeactivate(row)}>
+              Уволить
+            </Button>
+          )}
+          {a.onDetails && (
+            <Button size="small" onClick={() => a.onDetails?.(row)}>
+              Подробнее
+            </Button>
+          )}
+        </Stack>
+      );
+    },
+  },
+];
+
 /* ----------------------------------- Page ----------------------------------- */
 
 export interface UsersPageProps {
-  /** Open the details drawer / page for an application. */
+  /** Open the details drawer / page for a user. */
   onDetails?: (row: UserRow) => void;
 }
 
 /**
- * "Пользователи" page body (tabs + search + role filters + table).
- *
- * Data and mutations come from `src/api/users.ts` via react-query hooks.
- * `onDetails` remains a prop because opening a drawer is a UI-navigation
- * concern, not a data mutation.
+ * "Пользователи" page (Owner only): applications / active users / fired.
+ * Data: GET /api/users; actions: POST /api/users/{id}/approve and
+ * DELETE /api/users/{id}. Status is derived from isApproved / isActive.
  */
 export default function UsersPage({ onDetails }: UsersPageProps) {
+  const { user: me } = useAuth();
   const { data: rows = [], isLoading, isError, error } = useUsers();
-  const acceptUser = useAcceptUser();
-  const declineUser = useDeclineUser();
+  const { data: company } = useMyCompany();
+  const approve = useApproveUser();
+  const deactivate = useDeactivateUser();
 
   const [tab, setTab] = useState(0);
   const [filter, setFilter] = useState<RoleFilter>('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
+  const [target, setTarget] = useState<UserRow | null>(null); // awaiting confirmation
+
+  const counts = useMemo(() => {
+    const c: Record<UserStatus, number> = { pending: 0, active: 0, fired: 0 };
+    for (const row of rows) c[row.status] += 1;
+    return c;
+  }, [rows]);
 
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const qDigits = q.replace(/\D/g, '');
     return rows.filter(
       (row) =>
-        filterPredicates[filter](row) &&
+        row.status === tabs[tab].status &&
+        (filter === 'all' || row.role === filter) &&
         (!q ||
-          row.applicant.toLowerCase().includes(q) ||
-          row.phone.toLowerCase().includes(q)),
+          row.fullName.toLowerCase().includes(q) ||
+          (qDigits !== '' && row.phone.includes(qDigits))),
     );
-  }, [rows, filter, query]);
+  }, [rows, tab, filter, query]);
 
   const pageRows = filteredRows.slice(page * ROWS_PER_PAGE, (page + 1) * ROWS_PER_PAGE);
 
-  const handleFilterChange = (value: RoleFilter) => {
-    setFilter(value);
-    setPage(0);
-  };
+  const busyId = approve.isPending
+    ? approve.variables
+    : deactivate.isPending
+      ? deactivate.variables
+      : undefined;
 
-  const handleQueryChange = (value: string) => {
-    setQuery(value);
-    setPage(0);
-  };
+  const { mutate: approveMutate } = approve;
 
   const columns = useMemo(
     () =>
       buildColumns({
-        onAccept: (row) => acceptUser.mutate(row.id),
-        onDecline: (row) => declineUser.mutate(row.id),
-        onDetails: (row) => onDetails?.(row),
+        currentUserId: me?.id,
+        busyId,
+        onApprove: (row) => approveMutate(row.id),
+        onDeactivate: (row) => setTarget(row),
+        onDetails,
       }),
-    // `acceptUser` / `declineUser` are stable refs from useMutation,
-    // but referencing `.mutate` directly would create a new fn each render,
-    // so we depend on the mutation objects themselves.
-    [acceptUser, declineUser, onDetails],
+    [me?.id, busyId, approveMutate, onDetails],
   );
+
+  const mutationError = approve.error ?? deactivate.error;
+
+  const confirmDeactivate = () => {
+    if (!target) return;
+    deactivate.mutate(target.id);
+    setTarget(null);
+  };
 
   if (isError) {
     return (
@@ -170,15 +204,44 @@ export default function UsersPage({ onDetails }: UsersPageProps) {
 
   return (
     <Stack spacing={3} sx={{ p: 3 }}>
+      {company && (
+        <Alert
+          severity="info"
+          action={
+            <Button color="inherit" size="small" onClick={() => navigator.clipboard.writeText(company.id)}>
+              Копировать id
+            </Button>
+          }
+        >
+          Чтобы сотрудник или завхоз мог зарегистрироваться в «{company.name}», сообщите ему id компании:{' '}
+          <b>{company.id}</b>
+        </Alert>
+      )}
+
+      {mutationError && (
+        <Alert
+          severity="error"
+          onClose={() => {
+            approve.reset();
+            deactivate.reset();
+          }}
+        >
+          {mutationError.message}
+        </Alert>
+      )}
+
       {/* Tabs */}
       <Tabs
         value={tab}
-        onChange={(_, value: number) => setTab(value)}
+        onChange={(_, value: number) => {
+          setTab(value);
+          setPage(0);
+        }}
         variant="standard"
         sx={{ borderBottom: 1, borderColor: 'divider' }}
       >
-        {tabs.map((label) => (
-          <Tab key={label} label={label} />
+        {tabs.map(({ label, status }) => (
+          <Tab key={status} label={`${label} (${counts[status]})`} />
         ))}
       </Tabs>
 
@@ -188,7 +251,10 @@ export default function UsersPage({ onDetails }: UsersPageProps) {
           type="search"
           label="Поиск по имени или телефону"
           value={query}
-          onChange={(event) => handleQueryChange(event.target.value)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setPage(0);
+          }}
           sx={{ minWidth: 320 }}
           slotProps={{
             input: {
@@ -209,7 +275,10 @@ export default function UsersPage({ onDetails }: UsersPageProps) {
               clickable
               color={filter === value ? 'primary' : 'default'}
               variant={filter === value ? 'filled' : 'outlined'}
-              onClick={() => handleFilterChange(value)}
+              onClick={() => {
+                setFilter(value);
+                setPage(0);
+              }}
             />
           ))}
         </Stack>
@@ -233,6 +302,25 @@ export default function UsersPage({ onDetails }: UsersPageProps) {
           }}
         />
       )}
+
+      {/* Irreversible: no reactivation endpoint exists */}
+      <Dialog open={target !== null} onClose={() => setTarget(null)}>
+        <DialogTitle>
+          {target?.status === 'pending' ? 'Отклонить заявку?' : 'Уволить сотрудника?'}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {target?.fullName}: аккаунт будет деактивирован, все его сессии завершены.
+            Вернуть доступ нельзя, а телефон останется занятым.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTarget(null)}>Отмена</Button>
+          <Button color="error" onClick={confirmDeactivate}>
+            {target?.status === 'pending' ? 'Отклонить' : 'Уволить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }
