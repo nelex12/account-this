@@ -2,8 +2,9 @@
 // "Overview Board / Worker" (Mobile Light): who is signed in, last sync, QR scan button,
 // tools currently on hand and a short how-to.
 //
-// The top app bar ("Account This!" + status badge) and the bottom navigation are NOT part of the page:
-// the bar comes from the route's `handle.topBar` and the navigation from the layout.
+// The top app bar ("Account This!" + status badge + profile button) is NOT part of the page:
+// the bar comes from the route's `handle.topBar` and the profile button from SimpleLayout.
+// Worker has no bottom navigation.
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -11,6 +12,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { QrCodeScannerIcon } from '../../shared/Icons';
 import { useAuth } from '../../app/providers/AuthProvider';
+import { useProfile } from '../../api';
 import HeldToolCard, { type HeldToolCardProps } from './HeldToolCard';
 
 /* ----------------------------------- Data ----------------------------------- */
@@ -49,18 +51,23 @@ export default function WorkerOverviewPage({
   onToolClick,
 }: WorkerOverviewPageProps) {
   const { user } = useAuth();
-  const name = workerName ?? user?.fullName ?? '';
+  // The JWT has no name; useProfile reads it from the worker certificate
+  // (same cached query as the profile page).
+  const { data: profile } = useProfile();
+  const name = workerName ?? user?.fullName ?? profile?.fullName ?? '';
 
   return (
-    <Stack spacing={2} sx={{ p: 2.5, pb: 15 }}>
+    <Stack spacing={2} sx={{ p: 2.5, pb: 4, width: '100%', maxWidth: 560, mx: 'auto' }}>
       {/* Who is signed in */}
       <Box>
         <Typography variant="caption" component="div">
           Сотрудник
         </Typography>
-        <Typography variant="h6" component="h2" sx={{ mt: 1 }}>
-          {name}
-        </Typography>
+        {name && (
+          <Typography variant="h6" component="h2" sx={{ mt: 1 }}>
+            {name}
+          </Typography>
+        )}
       </Box>
 
       {/* Sync state */}

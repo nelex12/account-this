@@ -1,12 +1,11 @@
 // src/app/main.tsx
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { RouterProvider, BrowserRouter } from 'react-router-dom';
+import { RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import CssBaseline from '@mui/material/CssBaseline';
 
 import ThemeProvider from './providers/ThemeProvider';
-import App from '../App';
 import { AuthProvider } from './providers/AuthProvider';
 import { router } from './router/routes';
 
@@ -23,13 +22,4 @@ createRoot(document.getElementById('root')!).render(
       </ThemeProvider>
     </QueryClientProvider>
   </StrictMode>,
-  
-  // <StrictMode>
-  //   <BrowserRouter>
-  //     <ThemeProvider>
-  //       <CssBaseline />
-  //       <App />
-  //     </ThemeProvider>
-  //   </BrowserRouter>
-  // </StrictMode>
 );
