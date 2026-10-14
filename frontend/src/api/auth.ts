@@ -112,6 +112,10 @@ export async function login(payload: LoginPayload): Promise<AuthSession> {
 
   const data = await readJson(response);
 
+  if (response.status === 400) {
+    // Phone is not +7/7/8 followed by 10 digits, or a field is missing.
+    throw new ApiError('Проверьте номер телефона и пароль', 400, data?.errors);
+  }
   if (response.status === 401) {
     throw new ApiError('Неверный телефон или пароль', 401);
   }
@@ -130,11 +134,9 @@ export async function login(payload: LoginPayload): Promise<AuthSession> {
 /* --------------------------------- refresh --------------------------------- */
 
 /**
- * Silently restore / extend the session using the httpOnly refresh cookie.
- * Returns null when there is no valid session (401/403).
- *
- * Adjust the path if your backend uses a different endpoint name
- * (e.g. /api/auth/refresh-token).
+ * Silently restore / extend the session using the httpOnly refresh cookie
+ * (POST /api/auth/refresh, no body). Returns null when there is no valid
+ * session (401): the caller must show the login screen.
  */
 export async function refresh(): Promise<AuthSession | null> {
   // The refresh token is rotated on every use, and the backend ends the whole

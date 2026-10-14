@@ -1,14 +1,17 @@
 // src/entities/profileModel.ts
+import type { Role } from './authModel';
+
+/**
+ * Data for the profile page, assembled from what the API can give per role
+ * (see api/profile.ts). Optional fields are `undefined` when the backend
+ * has no way to provide them for this role yet.
+ */
 export interface ProfileData {
-  fullName: string;
+  /** `sub` claim of the access token */
+  id: string;
+  role: Role;
+  fullName?: string;
   /** Normalized phone, e.g. "+79991234567" */
-  phone: string;
-  /** Display-ready role label, e.g. "Владелец" */
-  role: string;
-  /**
-   * Mock only — real app never has the password on the client.
-   * The password is fetched from a `/api/profile` endpoint only when needed,
-   * or never (user can only *change* it, not read it).
-   */
-  password: string;
+  phone?: string;
+  companyName?: string;
 }

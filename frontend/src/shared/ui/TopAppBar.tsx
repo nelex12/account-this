@@ -1,4 +1,4 @@
-// TopAppBarDesktop.tsx
+// TopAppBar.tsx
 import type { ReactNode } from 'react';
 import { useMediaQuery, useTheme } from '@mui/material';
 import AppBar from '@mui/material/AppBar';
@@ -33,14 +33,16 @@ export interface TopAppBarDesktopProps {
   primaryAction?: TopAppBarAction;
   /** Status chip text, e.g. "В сети" */
   statusLabel?: string;
-  /** Renders a back button on the left in mobile layout. */
+  /** Renders a back button on the left (any screen width). */
   onBack?: () => void;
+  /** Free slot at the far right, after the status chip (e.g. a profile IconButton). Any screen width. */
+  trailing?: ReactNode;
 }
 
 /**
  * Layout
- *   desktop: [ Title block (fills) ........................ | Secondary | Primary | Status ]
- *   mobile:  [ Back | Title block (fills) ............................... | Status ]
+ *   desktop: [ Back | Title block (fills) ............ | Secondary | Primary | Status | Trailing ]
+ *   mobile:  [ Back | Title block (fills) ................................. | Status | Trailing ]
  *
  * All parts except the title are optional.
  */
@@ -51,12 +53,14 @@ export default function TopAppBar({
   primaryAction,
   statusLabel,
   onBack,
+  trailing,
 }: TopAppBarDesktopProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const hasDesktopActions = !isMobile && Boolean(secondaryAction || primaryAction);
   const hasStatus = Boolean(statusLabel);
+  const hasTrailing = Boolean(trailing);
 
   return (
     <AppBar
@@ -75,8 +79,8 @@ export default function TopAppBar({
           alignItems: 'center',
         }}
       >
-        {/* Back button — mobile only */}
-        {isMobile && onBack && (
+        {/* Back button */}
+        {onBack && (
           <IconButton edge="start" onClick={onBack} aria-label="Назад">
             <ArrowBackIcon />
           </IconButton>
@@ -94,8 +98,8 @@ export default function TopAppBar({
           )}
         </Box>
 
-        {/* Right side: actions (desktop) + status chip (both) */}
-        {(hasDesktopActions || hasStatus) && (
+        {/* Right side: actions (desktop) + status chip + trailing slot */}
+        {(hasDesktopActions || hasStatus || hasTrailing) && (
           <Stack
             direction="row"
             spacing={isMobile ? 1 : 2}
@@ -128,6 +132,8 @@ export default function TopAppBar({
             {hasStatus && (
               <Chip color="success" label={statusLabel} />
             )}
+
+            {trailing}
           </Stack>
         )}
       </Toolbar>
