@@ -1,23 +1,34 @@
+// src/pages/tools/ToolsPage.tsx
 import { useMemo, useState } from 'react';
+
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import InputAdornment from '@mui/material/InputAdornment';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
+import TablePagination from '@mui/material/TablePagination';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import InputAdornment from '@mui/material/InputAdornment';
-import Box from '@mui/material/Box';
-import TablePagination from '@mui/material/TablePagination';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
+
 import StatusBadge from '../../shared/ui/StatusBadge';
+import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
 import { SearchIcon } from '../../shared/Icons';
 
-import { type ToolRow } from '../../entities/toolsModel';
+import { useTools } from '../../api/tools';
+import {
+  formatUnix,
+  getToolLocation,
+  isFaulty,
+  isIssued,
+  type Tool,
+} from '../../entities/toolsModel';
 
-import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
-import { toolRows } from '../../mock/tools';
 import ToolCard from './ToolCard';
 import { conditionBadge } from './toolCondition';
 
@@ -32,81 +43,83 @@ const filters: { value: ToolFilter; label: string }[] = [
   { value: 'faulty', label: 'Неисправные' },
 ];
 
-const columns: DataTableColumn<ToolRow>[] = [
+const filterPredicates: Record<ToolFilter, (tool: Tool) => boolean> = {
+  all: () => true,
+  inStock: (tool) => !isIssued(tool),
+  issued: isIssued,
+  faulty: isFaulty,
+};
+
+const columns: DataTableColumn<Tool>[] = [
   {
     key: 'tool',
     label: 'ИНСТРУМЕНТ',
-    width: '23%',
-    render: (row) => (
-      <>
-        <Typography>{row.name}</Typography>
-        <Typography variant="body2" color="text.secondary">
-          {row.number}
-        </Typography>
-      </>
-    ),
+    width: '36%',
+    render: (tool) => <Typography>{tool.name}</Typography>,
   },
-  { key: 'category', label: 'КАТЕГОРИЯ', width: '15%', render: (row) => row.category },
   {
     key: 'condition',
     label: 'СОСТОЯНИЕ',
-    width: '14%',
-    render: (row) => <StatusBadge {...conditionBadge[row.condition]} />,
+    width: '16%',
+    render: (tool) => <StatusBadge {...conditionBadge[tool.condition]} />,
   },
-  { key: 'location', label: 'МЕСТОПОЛОЖЕНИЕ', width: '22%', render: (row) => row.location },
   {
-    key: 'updated',
-    label: 'ОБНОВЛЕНО',
-    width: '12%',
-    render: (row) => <Typography color="text.secondary">{row.updated}</Typography>,
+    key: 'location',
+    label: 'МЕСТОПОЛОЖЕНИЕ',
+    width: '26%',
+    render: (tool) => getToolLocation(tool),
+  },
+  {
+    key: 'heldSince',
+    label: 'НА РУКАХ С',
+    width: '16%',
+    render: (tool) =>
+      tool.heldSince !== null ? (
+        <Typography color="text.secondary">
+          {formatUnix(tool.heldSince)}
+        </Typography>
+      ) : (
+        <Typography color="text.secondary">—</Typography>
+      ),
   },
   {
     key: 'actions',
     label: 'ДЕЙСТВИЯ',
-    width: '14%',
+    width: '6%',
     render: () => <Button>Подробнее</Button>,
   },
 ];
-
-const filterPredicates: Record<ToolFilter, (row: ToolRow) => boolean> = {
-  all: () => true,
-  inStock: (row) => !row.issued,
-  issued: (row) => row.issued,
-  faulty: (row) => row.condition !== 'ok',
-};
 
 const ROWS_PER_PAGE = 8;
 
 /* ----------------------------------- Page ----------------------------------- */
 
-/**
- * Owner "Инструменты" page body (Penpot: Tools Board → Table Board → List 1),
- * built from default MUI components only.
- *
- * The top app bar is NOT included; render <TopAppBarDesktop /> above this with
- *   title="Инструменты", supportingText="24 инструмента в хранилище, 8 на руках", statusLabel="В сети",
- *   secondaryAction={{ label: 'Печать/загрузка наклеек' }}, primaryAction={{ label: 'Добавить инструмент' }}
- */
 export default function ToolsPage() {
   const theme = useTheme();
   // Same breakpoint as AppLayout / TopAppBar: phones get cards instead of a table
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  const { data: tools, isLoading, error } = useTools();
 
   const [tab, setTab] = useState(0);
   const [filter, setFilter] = useState<ToolFilter>('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
 
-  const filteredRows = useMemo(() => {
+  const filteredTools = useMemo(() => {
+    if (!tools) return [];
     const q = query.trim().toLowerCase();
-    return toolRows.filter(
-      (row) =>
-        filterPredicates[filter](row) &&
-        (!q || row.name.toLowerCase().includes(q) || row.number.toLowerCase().includes(q)),
+    return tools.filter(
+      (tool) =>
+        filterPredicates[filter](tool) &&
+        (!q || tool.name.toLowerCase().includes(q)),
     );
-  }, [filter, query]);
+  }, [tools, filter, query]);
 
-  const pageRows = filteredRows.slice(page * ROWS_PER_PAGE, (page + 1) * ROWS_PER_PAGE);
+  const pageTools = filteredTools.slice(
+    page * ROWS_PER_PAGE,
+    (page + 1) * ROWS_PER_PAGE,
+  );
 
   const handleFilterChange = (value: ToolFilter) => {
     setFilter(value);
@@ -117,6 +130,22 @@ export default function ToolsPage() {
     setQuery(value);
     setPage(0);
   };
+
+  if (isLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error">Не удалось загрузить инструменты</Alert>
+      </Box>
+    );
+  }
 
   return (
     <Stack spacing={isMobile ? 2 : 3} sx={{ p: isMobile ? 2 : 3 }}>
@@ -134,7 +163,7 @@ export default function ToolsPage() {
           >
             <TextField
               type="search"
-              label="Название или номер"
+              label="Название"
               value={query}
               onChange={(event) => handleQueryChange(event.target.value)}
               fullWidth={isMobile}
@@ -151,7 +180,14 @@ export default function ToolsPage() {
             />
 
             {/* On phones the chips scroll horizontally instead of wrapping */}
-            <Stack direction="row" spacing={1} sx={{ overflowX: isMobile ? 'auto' : 'visible', pb: isMobile ? 0.5 : 0 }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{
+                overflowX: isMobile ? 'auto' : 'visible',
+                pb: isMobile ? 0.5 : 0,
+              }}
+            >
               {filters.map(({ value, label }) => (
                 <Chip
                   key={value}
@@ -168,11 +204,11 @@ export default function ToolsPage() {
           {isMobile ? (
             <>
               <Stack spacing={1.5}>
-                {pageRows.map((row) => (
-                  <ToolCard key={row.id} row={row} />
+                {pageTools.map((tool) => (
+                  <ToolCard key={tool.id} tool={tool} />
                 ))}
 
-                {pageRows.length === 0 && (
+                {pageTools.length === 0 && (
                   <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
                     Ничего не найдено
                   </Typography>
@@ -182,22 +218,24 @@ export default function ToolsPage() {
               <Box>
                 <TablePagination
                   component="div"
-                  count={filteredRows.length}
+                  count={filteredTools.length}
                   page={page}
                   rowsPerPage={ROWS_PER_PAGE}
                   rowsPerPageOptions={[]}
                   onPageChange={(_, nextPage) => setPage(nextPage)}
-                  labelDisplayedRows={({ from, to, count }) => `${from}–${to} из ${count}`}
+                  labelDisplayedRows={({ from, to, count }) =>
+                    `${from}–${to} из ${count}`
+                  }
                 />
               </Box>
             </>
           ) : (
             <DataTable
               columns={columns}
-              rows={pageRows}
-              getRowId={(row) => row.id}
+              rows={pageTools}
+              getRowId={(tool) => tool.id}
               pagination={{
-                count: filteredRows.length,
+                count: filteredTools.length,
                 page,
                 rowsPerPage: ROWS_PER_PAGE,
                 onPageChange: setPage,
