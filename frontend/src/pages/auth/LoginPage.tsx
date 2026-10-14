@@ -1,6 +1,6 @@
 // src/pages/auth/LoginPage.tsx
 import { useState, type FormEvent } from 'react';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -16,12 +16,21 @@ import {
 
 import { ApiError } from '../../api/auth';
 import { useAuth } from '../../app/providers/AuthProvider';
+import type { Role } from '../../entities/authModel';
+
+/** Passed by SignUpPage through router state after a successful registration. */
+interface LoginLocationState {
+  registered?: boolean;
+  role?: Role;
+}
 
 /* ----------------------------------- Page ---------------------------------- */
 
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const registration = (location.state as LoginLocationState | null) ?? null;
 
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -105,6 +114,14 @@ export default function LoginPage() {
                   gap: 3,
                 }}
               >
+                {registration?.registered && !error && (
+                  <Alert severity="success">
+                    {registration.role === 'Owner'
+                      ? 'Регистрация прошла успешно. Войдите, используя телефон и пароль.'
+                      : 'Регистрация прошла успешно. Войти можно после того, как владелец компании подтвердит ваш аккаунт.'}
+                  </Alert>
+                )}
+
                 {error && <Alert severity="error">{error}</Alert>}
 
                 <Stack spacing={2}>

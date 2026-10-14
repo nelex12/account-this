@@ -1,6 +1,6 @@
 // src/api/auth.ts
 import { useMutation } from '@tanstack/react-query';
-import type { Role } from '../app/providers/AuthProvider';
+import type { Role } from '../entities/authModel';
 import { apiFetch } from './http';
 
 /* ------------------------------- register ---------------------------------- */
@@ -137,6 +137,20 @@ export async function login(payload: LoginPayload): Promise<AuthSession> {
  * (e.g. /api/auth/refresh-token).
  */
 export async function refresh(): Promise<AuthSession | null> {
+  // The refresh token is rotated on every use, and the backend ends the whole
+  // session if an already-used token is presented again. The cookie is shared
+  // by all tabs, so refreshes must not run in parallel across tabs: serialize
+  // them with the Web Locks API. A tab that waits for the lock then sends the
+  // cookie the other tab has just received.
+  if (typeof navigator !== 'undefined' && 'locks' in navigator) {
+    return navigator.locks.request(REFRESH_LOCK, refreshOnce);
+  }
+  return refreshOnce();
+}
+
+const REFRESH_LOCK = 'account-this:auth-refresh';
+
+async function refreshOnce(): Promise<AuthSession | null> {
   const response = await fetch('/api/auth/refresh', {
     method: 'POST',
     credentials: 'include',
