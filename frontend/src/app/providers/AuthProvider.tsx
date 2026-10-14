@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 
 import {
   login as loginRequest,
@@ -17,16 +18,12 @@ import {
   type AuthSession,
 } from '../../api/auth';
 import { registerAuthBridge } from '../../api/authBridge';
+import { isRole, type AuthUser, type Role } from '../../entities/authModel';
+
+// Re-exported so existing `import { Role } from '.../AuthProvider'` keeps working.
+export type { AuthUser, Role };
 
 /* ---------------------------------- types ---------------------------------- */
-
-export type Role = 'Owner' | 'Issuer' | 'Worker';
-
-export interface AuthUser {
-  id: number;
-  fullName: string;
-  role: Role;
-}
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -42,10 +39,18 @@ interface AuthContextValue {
 
 interface JwtPayload {
   sub?: string;
-  id?: number;
+  role?: unknown;
+  company_id?: string;
   fullName?: string;
-  role?: Role;
-  exp?: number;
+}
+
+/** base64url -> string, UTF-8 safe (plain atob() garbles Cyrillic). */
+function decodeBase64Url(input: string): string {
+  const base64 = input.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
 function decodeToken(token: string): AuthUser | null {
@@ -53,15 +58,15 @@ function decodeToken(token: string): AuthUser | null {
     const [, payload] = token.split('.');
     if (!payload) return null;
 
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const json = JSON.parse(atob(normalized)) as JwtPayload;
+    const claims = JSON.parse(decodeBase64Url(payload)) as JwtPayload;
 
-    if (!json.role) return null;
+    if (!claims.sub || !isRole(claims.role)) return null;
 
     return {
-      id: json.id ?? Number(json.sub ?? 0),
-      fullName: json.fullName ?? '',
-      role: json.role,
+      id: claims.sub,
+      companyId: claims.company_id ?? '',
+      role: claims.role,
+      fullName: claims.fullName,
     };
   } catch {
     return null;
@@ -83,46 +88,65 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 /* -------------------------------- provider --------------------------------- */
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+
   const [session, setSession] = useState<SessionState | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // Keep the latest session in a ref so the auth bridge always reads fresh
-  // values without needing to re-register on every state change.
+  // The ref is the source of truth for the auth bridge. It is written
+  // SYNCHRONOUSLY together with the state (see `commitSession`), never from an
+  // effect: child effects run before the provider's effects, so an effect-based
+  // ref would still be null for the first requests after login.
   const sessionRef = useRef<SessionState | null>(null);
-  useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
 
-  // Deduplicate concurrent refreshes (e.g. many 401s in parallel).
+  // Deduplicate concurrent refreshes within this tab (many 401s in parallel).
   const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
+
+  const commitSession = useCallback((next: SessionState | null) => {
+    sessionRef.current = next;
+    setSession(next);
+  }, []);
+
+  /** Drop the session AND everything cached for the previous user. */
+  const clearSession = useCallback(() => {
+    commitSession(null);
+    queryClient.clear();
+  }, [commitSession, queryClient]);
 
   const user = useMemo<AuthUser | null>(
     () => (session ? decodeToken(session.token) : null),
     [session],
   );
 
-  const applySession = useCallback((s: AuthSession) => {
-    setSession({
-      token: s.accessToken,
-      expiresAt: Date.now() + s.expiresIn * 1000,
-    });
-  }, []);
+  /** Returns false when the token is unusable (no/unknown role, bad format). */
+  const applySession = useCallback(
+    (s: AuthSession): boolean => {
+      if (!decodeToken(s.accessToken)) return false;
+      commitSession({
+        token: s.accessToken,
+        expiresAt: Date.now() + s.expiresIn * 1000,
+      });
+      return true;
+    },
+    [commitSession],
+  );
 
   /* Refresh routine shared by the bootstrap effect, the proactive timer,
-     and the http layer (via authBridge). */
+     and the http layer (via authBridge). Cross-tab safety lives in
+     `refreshRequest` (Web Locks). */
   const doRefresh = useCallback(async (): Promise<string | null> => {
     if (refreshPromiseRef.current) return refreshPromiseRef.current;
 
     const promise = (async () => {
       try {
         const next = await refreshRequest();
-        if (!next) {
-          setSession(null);
+        if (!next || !applySession(next)) {
+          clearSession();
           return null;
         }
-        applySession(next);
         return next.accessToken;
       } catch {
+        // Network / 5xx: keep whatever we have, the caller decides what to do.
         return null;
       } finally {
         refreshPromiseRef.current = null;
@@ -131,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     refreshPromiseRef.current = promise;
     return promise;
-  }, [applySession]);
+  }, [applySession, clearSession]);
 
   /* Register the bridge so apiFetch can read the token / trigger refresh. */
   useEffect(() => {
@@ -145,13 +169,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
-    (async () => {
-      const token = await doRefresh();
-      if (cancelled) return;
-      // `doRefresh` already applied the session (or cleared it).
-      void token;
-      setIsInitialized(true);
-    })();
+    void doRefresh().then(() => {
+      if (!cancelled) setIsInitialized(true);
+    });
 
     return () => {
       cancelled = true;
@@ -180,18 +200,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (phone: string, password: string) => {
       const next = await loginRequest({ phone, password });
-      applySession(next);
+      // Never mix the previous user's cache with the new session.
+      queryClient.clear();
+      if (!applySession(next)) {
+        throw new Error('Сервер вернул некорректный токен');
+      }
     },
-    [applySession],
+    [applySession, queryClient],
   );
 
   const logout = useCallback(async () => {
     try {
       await logoutRequest();
     } finally {
-      setSession(null); // forget the access token regardless of network result
+      // Forget the access token and the cache regardless of network result.
+      clearSession();
     }
-  }, []);
+  }, [clearSession]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

@@ -172,7 +172,7 @@ export default function SignUpPage() {
       await register.mutateAsync(payload);
       navigate('/login', {
         replace: true,
-        state: { registered: true },
+        state: { registered: true, role },
       });
     } catch (error) {
       if (error instanceof ApiError) {
