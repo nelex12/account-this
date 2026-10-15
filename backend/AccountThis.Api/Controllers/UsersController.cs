@@ -6,17 +6,29 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace AccountThis.Api.Controllers;
 
-// Все методы контроллера требуют роль: Owner — и работают только с пользователями его компании
+// Все методы, кроме GET /api/users/me, требуют роль: Owner — и работают только с пользователями его компании
 // (company_id из JWT). Пользователь другой компании неотличим от несуществующего: 404.
 [ApiController]
 [Route("api/users")]
-[Authorize(Roles = "Owner")]
+[Authorize]
 public class UsersController(IUsersService usersService) : ControllerBase
 {
+    /// <summary>
+    /// Свой профиль, любая роль: пользователь из JWT (sub) в его компании (company_id).
+    /// </summary>
+    [HttpGet("me")]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<UserResponse>> GetMe(CancellationToken cancellationToken)
+    {
+        var user = await usersService.GetMeAsync(User.GetCompanyId(), User.GetUserId(), cancellationToken);
+        return user is null ? UserNotFound(User.GetUserId()) : user;
+    }
+
     /// <summary>
     /// Список пользователей своей компании (включая неподтверждённых и уволенных).
     /// </summary>
     [HttpGet]
+    [Authorize(Roles = "Owner")]
     public async Task<ActionResult<List<UserResponse>>> GetUsers(CancellationToken cancellationToken)
     {
         return await usersService.GetUsersAsync(User.GetCompanyId(), cancellationToken);
@@ -28,6 +40,7 @@ public class UsersController(IUsersService usersService) : ControllerBase
     /// офлайн-сертификат — до 12 часов (операции после увольнения получают WORKER_DEACTIVATED). 409 — попытка уволить самого себя.
     /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Roles = "Owner")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -50,6 +63,7 @@ public class UsersController(IUsersService usersService) : ControllerBase
     /// Подтверждение регистрации пользователя своей компании (is_approved = true). Повторный вызов — 200.
     /// </summary>
     [HttpPost("{id}/approve")]
+    [Authorize(Roles = "Owner")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
