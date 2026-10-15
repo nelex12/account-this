@@ -393,6 +393,32 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /api/users/me:
+    get:
+      tags: [Users]
+      operationId: GetMe
+      summary: Свой профиль
+      description: |
+        Пользователь вызывающего: id и компания — из JWT (`sub`, `company_id`), параметров нет. Для профиля на клиенте
+        (ФИО, телефон, роль). Название компании — `GET /api/companies/my`.
+        Уволенный, пока его access token не истёк (до 15 минут), получает свой профиль с isActive = false.
+        404 — пользователя из токена нет в его компании.
+
+        **Требуется авторизация:** любая роль.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Профиль вызывающего
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/users/{id}:
     delete:
       tags: [Users]

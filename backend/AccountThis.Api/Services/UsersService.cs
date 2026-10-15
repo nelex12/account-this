@@ -17,6 +17,9 @@ public enum DeactivateUserStatus
 // Пользователь другой компании неотличим от несуществующего.
 public interface IUsersService
 {
+    // Пользователь из JWT вызывающего (любая роль); null — его нет в этой компании
+    Task<UserResponse?> GetMeAsync(Guid companyId, Guid userId, CancellationToken cancellationToken);
+
     // Все пользователи компании, включая неподтверждённых и уволенных
     Task<List<UserResponse>> GetUsersAsync(Guid companyId, CancellationToken cancellationToken);
 
@@ -29,12 +32,27 @@ public interface IUsersService
 
 public class UsersService(NpgsqlDataSource dataSource) : IUsersService
 {
+    private const string UserColumns = "id, full_name, phone, role::text, is_approved, is_active";
+
+    public async Task<UserResponse?> GetMeAsync(Guid companyId, Guid userId, CancellationToken cancellationToken)
+    {
+        // company_id в WHERE — та же изоляция, что и везде: id из токена ищется только в компании из токена
+        await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand(
+            $"SELECT {UserColumns} FROM users WHERE id = @id AND company_id = @companyId",
+            conn);
+        cmd.Parameters.AddWithValue("id", userId);
+        cmd.Parameters.AddWithValue("companyId", companyId);
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? ReadUser(reader) : null;
+    }
+
     public async Task<List<UserResponse>> GetUsersAsync(Guid companyId, CancellationToken cancellationToken)
     {
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand(
-            "SELECT id, full_name, phone, role::text, is_approved, is_active " +
-            "FROM users WHERE company_id = @companyId " +
+            $"SELECT {UserColumns} FROM users WHERE company_id = @companyId " +
             "ORDER BY created_at, id",
             conn);
         cmd.Parameters.AddWithValue("companyId", companyId);
@@ -43,15 +61,7 @@ public class UsersService(NpgsqlDataSource dataSource) : IUsersService
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            users.Add(new UserResponse
-            {
-                Id = reader.GetGuid(0),
-                FullName = reader.GetString(1),
-                Phone = reader.GetString(2),
-                Role = Enum.Parse<UserRole>(reader.GetString(3)),
-                IsApproved = reader.GetBoolean(4),
-                IsActive = reader.GetBoolean(5),
-            });
+            users.Add(ReadUser(reader));
         }
 
         return users;
@@ -78,4 +88,15 @@ public class UsersService(NpgsqlDataSource dataSource) : IUsersService
 
         return await cmd.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
+
+    // Колонки — в порядке UserColumns
+    private static UserResponse ReadUser(NpgsqlDataReader reader) => new()
+    {
+        Id = reader.GetGuid(0),
+        FullName = reader.GetString(1),
+        Phone = reader.GetString(2),
+        Role = Enum.Parse<UserRole>(reader.GetString(3)),
+        IsApproved = reader.GetBoolean(4),
+        IsActive = reader.GetBoolean(5),
+    };
 }
