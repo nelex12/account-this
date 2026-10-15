@@ -59,14 +59,7 @@ const columns: DataTableColumn<JournalRow>[] = [
     key: 'tool',
     label: 'ИНСТРУМЕНТ',
     width: '29%',
-    render: (row) => (
-      <>
-        <Typography>{row.toolName}</Typography>
-        <Typography variant="body2" color="text.secondary">
-          {row.toolNumber}
-        </Typography>
-      </>
-    ),
+    render: (row) => <Typography>{row.toolName}</Typography>,
   },
   { key: 'employee', label: 'СОТРУДНИК', width: '16%', render: (row) => row.employee },
   {
@@ -75,14 +68,13 @@ const columns: DataTableColumn<JournalRow>[] = [
     width: '17%',
     render: (row) => <StatusBadge {...row.condition} />,
   },
-  { key: 'acceptedBy', label: 'ПРИНЯЛ', width: '10%', render: (row) => row.acceptedBy },
+  {
+    key: 'validation',
+    label: 'ПРОВЕРКА',
+    width: '10%',
+    render: (row) => <StatusBadge label={row.validation.label} color={row.validation.color} />,
+  },
 ];
-
-const filterPredicates: Record<JournalFilter, (row: JournalRow) => boolean> = {
-  all: () => true,
-  issue: (row) => row.action === 'issue',
-  return: (row) => row.action === 'return',
-};
 
 const ROWS_PER_PAGE = 8;
 
@@ -95,9 +87,10 @@ export default function JournalPage({ onEdit }: JournalPageProps) {
   // Same breakpoint as AppLayout / TopAppBar: phones get cards instead of a table
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-  const { data: rows = [], isLoading, isError, error } = useJournal();
-
   const [filter, setFilter] = useState<JournalFilter>('all');
+  // The action filter goes to the server (GET /api/logs?action=...)
+  const { data: rows = [], isLoading, isError, error } = useJournal(filter);
+
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
 
@@ -105,13 +98,11 @@ export default function JournalPage({ onEdit }: JournalPageProps) {
     const q = query.trim().toLowerCase();
     return rows.filter(
       (row) =>
-        filterPredicates[filter](row) &&
-        (!q ||
-          row.toolName.toLowerCase().includes(q) ||
-          row.toolNumber.toLowerCase().includes(q) ||
-          row.employee.toLowerCase().includes(q)),
+        !q ||
+        row.toolName.toLowerCase().includes(q) ||
+        row.employee.toLowerCase().includes(q),
     );
-  }, [rows, filter, query]);
+  }, [rows, query]);
 
   const pageRows = filteredRows.slice(page * ROWS_PER_PAGE, (page + 1) * ROWS_PER_PAGE);
 
@@ -213,7 +204,7 @@ export default function JournalPage({ onEdit }: JournalPageProps) {
         <DataTable
           columns={columns}
           rows={pageRows}
-          getRowId={(row) => row.id}
+          getRowId={(row) => String(row.id)}
           pagination={{
             count: filteredRows.length,
             page,

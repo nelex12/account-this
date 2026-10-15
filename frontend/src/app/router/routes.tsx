@@ -13,10 +13,13 @@ import LoginPage from '../../pages/auth/LoginPage';
 import SignUpPage from '../../pages/auth/SignUpPage';
 import OwnerOverviewPage from '../../pages/overview/OwnerOverviewPage';
 import WorkerOverviewPage from '../../pages/overview/WorkerOverviewPage';
+import IssuerOverviewPage from '../../pages/overview/IssuerOverviewPage';
 import ToolsPage from '../../pages/tools/ToolsPage';
 import JournalPage from '../../pages/journal/JournalPage';
 import UsersPage from '../../pages/users/UsersPage';
 import ProfilePage from '../../pages/profile/ProfilePage';
+import ScanPage from '../../pages/scan/ScanPage';
+import OperationPage from '../../pages/operation/OperationPage';
 
 export type Role = 'Owner' | 'Issuer' | 'Worker';
 
@@ -27,7 +30,6 @@ export type Role = 'Owner' | 'Issuer' | 'Worker';
 export interface RouteHandle {
   topBar?: {
     title: string;
-    primaryAction?: string;
     supportingText?: string;
     statusLabel?: string;
   };
@@ -74,7 +76,7 @@ function OverviewByRole() {
     case 'Owner':
       return <OwnerOverviewPage />;
     case 'Issuer':
-      return <div>TODO</div>;
+      return <IssuerOverviewPage />;
     case 'Worker':
       return <WorkerOverviewPage />;
     default:
@@ -120,6 +122,23 @@ export const router = createBrowserRouter([
             handle: { topBar: { title: 'Профиль' } } satisfies RouteHandle,
           },
 
+          // Worker only
+          {
+            element: <RoleGuard roles={['Worker']} />,
+            children: [
+              {
+                path: '/scan',
+                element: <ScanPage />,
+                handle: { topBar: { title: 'Камера' } } satisfies RouteHandle,
+              },
+              {
+                path: '/operation',
+                element: <OperationPage />,
+                handle: { topBar: { title: 'Операция' } } satisfies RouteHandle,
+              },
+            ],
+          },
+
           // Owner + Issuer
           {
             element: <RoleGuard roles={['Owner', 'Issuer']} />,
@@ -128,7 +147,7 @@ export const router = createBrowserRouter([
                 path: '/tools',
                 element: <ToolsPage />,
                 handle: {
-                  topBar: { title: 'Инструменты', primaryAction: 'Добавить инструмент',statusLabel: 'В сети' },
+                  topBar: { title: 'Инструменты', statusLabel: 'В сети' },
                 } satisfies RouteHandle,
               },
               {

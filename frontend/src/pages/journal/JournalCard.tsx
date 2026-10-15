@@ -1,4 +1,3 @@
-
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardActionArea from '@mui/material/CardActionArea';
@@ -36,9 +35,6 @@ export default function JournalCard({ row, onDetails }: JournalCardProps) {
           <Typography variant="body1" sx={{ wordBreak: 'break-word' }}>
             {row.toolName}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {row.toolNumber}
-          </Typography>
         </Box>
         <Box sx={{ flexShrink: 0 }}>
           <StatusBadge {...row.condition} />
@@ -55,9 +51,9 @@ export default function JournalCard({ row, onDetails }: JournalCardProps) {
         </Box>
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="caption" color="text.secondary" component="div">
-            Принял
+            Проверка
           </Typography>
-          <Typography variant="body2">{row.acceptedBy}</Typography>
+          <StatusBadge label={row.validation.label} color={row.validation.color} />
         </Box>
       </Stack>
     </CardContent>

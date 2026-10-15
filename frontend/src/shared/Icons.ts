@@ -47,6 +47,7 @@ export { default as CheckCircleIcon } from '@mui/icons-material/CheckCircle';
 export { default as CancelIcon } from '@mui/icons-material/Cancel';
 export { default as VisibilityIcon } from '@mui/icons-material/Visibility';
 export { default as VisibilityOffIcon } from '@mui/icons-material/VisibilityOff';
+export { default as FlashOnIcon } from '@mui/icons-material/FlashOn';
 
 /* ------------------------ Journal / issue / return ------------------------ */
 
