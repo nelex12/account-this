@@ -5,6 +5,7 @@
 // The top app bar ("Account This!" + status badge + profile button) is NOT part of the page:
 // the bar comes from the route's `handle.topBar` and the profile button from SimpleLayout.
 // Worker has no bottom navigation.
+import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -37,7 +38,7 @@ export interface WorkerOverviewPageProps {
   lastSyncText?: string;
   /** Tools the worker currently holds. Defaults to the built-in placeholder. */
   tools?: HeldTool[];
-  /** Opens the QR scanner. */
+  /** Opens the QR scanner. Defaults to navigating to /scan. */
   onScan?: () => void;
   /** Opens the details of a held tool. */
   onToolClick?: (tool: HeldTool) => void;
@@ -50,6 +51,7 @@ export default function WorkerOverviewPage({
   onScan,
   onToolClick,
 }: WorkerOverviewPageProps) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   // The JWT has no name; useProfile reads it from the worker certificate
   // (same cached query as the profile page).
@@ -81,7 +83,7 @@ export default function WorkerOverviewPage({
         size="large"
         fullWidth
         startIcon={<QrCodeScannerIcon />}
-        onClick={onScan}
+        onClick={onScan ?? (() => navigate('/scan'))}
       >
         Сканировать QR-код
       </Button>

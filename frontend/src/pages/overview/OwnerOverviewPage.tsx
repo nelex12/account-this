@@ -49,14 +49,7 @@ const columns: DataTableColumn<OverviewHistoryRow>[] = [
     key: 'tool',
     label: 'ИНСТРУМЕНТ',
     width: '32%',
-    render: (row) => (
-      <>
-        <Typography sx={{ fontWeight: 500 }}>{row.toolName}</Typography>
-        <Typography variant="body2" color="text.secondary">
-          {row.toolNumber}
-        </Typography>
-      </>
-    ),
+    render: (row) => <Typography sx={{ fontWeight: 500 }}>{row.toolName}</Typography>,
   },
   { key: 'action',    label: 'ДЕЙСТВИЕ',  width: '14%', render: (row) => row.action },
   { key: 'employee',  label: 'СОТРУДНИК', width: '24%', render: (row) => row.employee },
