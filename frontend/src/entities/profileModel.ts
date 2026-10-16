@@ -2,9 +2,8 @@
 import type { Role } from './authModel';
 
 /**
- * Data for the profile page, assembled from what the API can give per role
- * (see api/profile.ts). Optional fields are `undefined` when the backend
- * has no way to provide them for this role yet.
+ * Data for the profile page: GET /api/users/me + GET /api/companies/my
+ * (see api/profile.ts). Optional fields are `undefined` if a request failed.
  */
 export interface ProfileData {
   /** `sub` claim of the access token */

@@ -66,7 +66,7 @@ const columns: DataTableColumn<Tool>[] = [
   {
     key: 'location',
     label: 'МЕСТОПОЛОЖЕНИЕ',
-    width: '26%',
+    width: '20%',
     render: (tool) => getToolLocation(tool),
   },
   {
@@ -85,7 +85,7 @@ const columns: DataTableColumn<Tool>[] = [
   {
     key: 'actions',
     label: 'ДЕЙСТВИЯ',
-    width: '6%',
+    width: '15%',
     render: () => <Button>Подробнее</Button>,
   },
 ];
