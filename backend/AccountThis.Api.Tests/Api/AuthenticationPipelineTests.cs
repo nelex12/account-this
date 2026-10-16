@@ -52,6 +52,17 @@ public class AuthenticationPipelineTests(ApiFactory factory)
         await AssertUnauthorized(response);
     }
 
+    // Срок действия — ровно 15 минут, без запаса: токен, истёкший минуту назад, уже не принимается
+    [Fact]
+    public async Task JustExpiredToken_Returns401()
+    {
+        var token = TestTokens.Create(UserRole.Worker, expires: DateTime.UtcNow.AddMinutes(-1));
+
+        var response = await SendWithToken(WorkerOnlyUrl, token);
+
+        await AssertUnauthorized(response);
+    }
+
     [Theory]
     [InlineData(UserRole.Issuer)]
     [InlineData(UserRole.Owner)]
