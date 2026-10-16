@@ -1,0 +1,9 @@
+{
+  "name": "Account This!",
+  "short_name": "AT",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F2F2F2",
+  "theme_color": "#FFA500",
+  "icons": []
+}
