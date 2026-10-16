@@ -11,6 +11,7 @@
 		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.31" />
 		<PackageReference Include="Npgsql" Version="8.0.3" />
 		<PackageReference Include="NSec.Cryptography" Version="25.4.0" />
+		<PackageReference Include="RabbitMQ.Client" Version="7.1.2" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
 	</ItemGroup>
 

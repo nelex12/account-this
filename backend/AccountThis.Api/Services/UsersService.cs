@@ -1,3 +1,4 @@
+using AccountThis.Api.Events;
 using AccountThis.Api.Models;
 using Npgsql;
 
@@ -26,11 +27,12 @@ public interface IUsersService
     // currentUserId — id вызывающего Owner (из JWT), чтобы запретить увольнение самого себя
     Task<DeactivateUserStatus> DeactivateAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken);
 
-    // false — пользователь не найден в компании; повторное подтверждение — true
-    Task<bool> ApproveAsync(Guid companyId, Guid id, CancellationToken cancellationToken);
+    // false — пользователь не найден в компании; повторное подтверждение — true.
+    // currentUserId — id вызывающего Owner (из JWT), автор события user.approved
+    Task<bool> ApproveAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken);
 }
 
-public class UsersService(NpgsqlDataSource dataSource) : IUsersService
+public class UsersService(NpgsqlDataSource dataSource, IEventPublisher eventPublisher, TimeProvider timeProvider) : IUsersService
 {
     private const string UserColumns = "id, full_name, phone, role::text, is_approved, is_active";
 
@@ -67,26 +69,98 @@ public class UsersService(NpgsqlDataSource dataSource) : IUsersService
         return users;
     }
 
-    public Task<DeactivateUserStatus> DeactivateAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken)
+    public async Task<DeactivateUserStatus> DeactivateAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken)
     {
-        // В одной транзакции:
-        // 1. is_active = false, deactivated_at = время сервера — только если пользователь ещё не уволен
-        //    (повторное увольнение момент не меняет). Пользователь другой компании — NotFound.
-        // 2. Погасить все действующие refresh token пользователя: revoked_at = время сервера WHERE revoked_at IS NULL.
-        throw new NotImplementedException();
+        if (id == currentUserId)
+        {
+            return DeactivateUserStatus.SelfDeactivation;
+        }
+
+        var now = timeProvider.GetUtcNow().ToUnixTimeSeconds();
+
+        await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
+
+        // FOR UPDATE: параллельные увольнения одного пользователя идут по очереди, событие — одно.
+        // company_id в WHERE — пользователь чужой компании не найдётся (NotFound)
+        bool wasActive;
+        await using (var cmdFind = new NpgsqlCommand(
+            "SELECT is_active FROM users WHERE id = @id AND company_id = @companyId FOR UPDATE",
+            conn,
+            transaction))
+        {
+            cmdFind.Parameters.AddWithValue("id", id);
+            cmdFind.Parameters.AddWithValue("companyId", companyId);
+            var result = await cmdFind.ExecuteScalarAsync(cancellationToken);
+            if (result is null)
+            {
+                return DeactivateUserStatus.NotFound;
+            }
+
+            wasActive = (bool)result;
+        }
+
+        // Повторное увольнение момент увольнения не меняет: по нему /api/sync выставляет WORKER_DEACTIVATED
+        if (wasActive)
+        {
+            await using var cmdDeactivate = new NpgsqlCommand(
+                "UPDATE users SET is_active = FALSE, deactivated_at = @now WHERE id = @id",
+                conn,
+                transaction);
+            cmdDeactivate.Parameters.AddWithValue("now", now);
+            cmdDeactivate.Parameters.AddWithValue("id", id);
+            await cmdDeactivate.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // Гасятся все действующие refresh token — все сессии пользователя. Сессия = family_id
+        int revokedSessions;
+        await using (var cmdRevoke = new NpgsqlCommand(
+            "WITH revoked AS (" +
+            "  UPDATE refresh_tokens SET revoked_at = @now WHERE user_id = @id AND revoked_at IS NULL RETURNING family_id" +
+            ") SELECT count(DISTINCT family_id)::int FROM revoked",
+            conn,
+            transaction))
+        {
+            cmdRevoke.Parameters.AddWithValue("now", now);
+            cmdRevoke.Parameters.AddWithValue("id", id);
+            revokedSessions = (int)(await cmdRevoke.ExecuteScalarAsync(cancellationToken))!;
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
+        if (wasActive)
+        {
+            eventPublisher.Publish(EventTypes.UserDeactivated, companyId, currentUserId, new { userId = id, revokedSessions });
+        }
+
+        return DeactivateUserStatus.Deactivated;
     }
 
-    public async Task<bool> ApproveAsync(Guid companyId, Guid id, CancellationToken cancellationToken)
+    public async Task<bool> ApproveAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken)
     {
-        // company_id в WHERE — защита от BOLA: пользователь чужой компании не найдётся (0 строк — 404)
+        // company_id в WHERE — защита от BOLA: пользователь чужой компании не найдётся (0 строк — 404).
+        // prev — значение до изменения (строка заблокирована FOR UPDATE): событие только если подтверждения ещё не было
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand(
-            "UPDATE users SET is_approved = TRUE WHERE id = @id AND company_id = @companyId",
+            "WITH prev AS (SELECT is_approved FROM users WHERE id = @id AND company_id = @companyId FOR UPDATE) " +
+            "UPDATE users u SET is_approved = TRUE FROM prev WHERE u.id = @id " +
+            "RETURNING prev.is_approved",
             conn);
         cmd.Parameters.AddWithValue("id", id);
         cmd.Parameters.AddWithValue("companyId", companyId);
 
-        return await cmd.ExecuteNonQueryAsync(cancellationToken) == 1;
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+        if (result is null)
+        {
+            return false;
+        }
+
+        if (!(bool)result)
+        {
+            eventPublisher.Publish(EventTypes.UserApproved, companyId, currentUserId, new { userId = id });
+        }
+
+        return true;
     }
 
     // Колонки — в порядке UserColumns
