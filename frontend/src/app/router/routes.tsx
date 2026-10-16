@@ -3,6 +3,8 @@ import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 
+import { AddIcon, PrintIcon } from '../../shared/Icons';
+import type { TopAppBarAction } from '../../shared/ui/TopAppBar';
 import { useAuth } from '../providers/AuthProvider';
 import RoleGuard from './RoleGuard';
 import DesktopLayout from './layouts/DesktopLayout';
@@ -32,6 +34,10 @@ export interface RouteHandle {
     title: string;
     supportingText?: string;
     statusLabel?: string;
+    /** Outlined button before the primary one; desktop only. */
+    secondaryAction?: TopAppBarAction;
+    /** Primary (contained) button; desktop only. */
+    primaryAction?: TopAppBarAction;
   };
 }
 
@@ -147,7 +153,13 @@ export const router = createBrowserRouter([
                 path: '/tools',
                 element: <ToolsPage />,
                 handle: {
-                  topBar: { title: 'Инструменты', statusLabel: 'В сети' },
+                  topBar: {
+                    title: 'Инструменты',
+                    statusLabel: 'В сети',
+                    // No onClick yet: stickers export and tool creation are not wired
+                    secondaryAction: { label: 'Печать/Загрузка наклеек', icon: <PrintIcon /> },
+                    primaryAction: { label: 'Добавить инструмент', icon: <AddIcon /> },
+                  },
                 } satisfies RouteHandle,
               },
               {

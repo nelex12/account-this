@@ -1,12 +1,20 @@
 // src/api/issuerOverview.ts — data for the Issuer "Обзор" page.
 //
-// The backend has no overview endpoint. The page is assembled from two sources:
-//   * server journal  — GET /api/logs (records already synced; see api/journal.ts)
-//   * local queue     — the issuer's offline journal: scanned QRs not yet sent via POST /api/sync
-// Both are mocked here. Replace `getIssuerOverview` / `syncNow` with the real thing later;
-// the shapes below are what the page needs, so the page itself stays untouched.
+// The backend has no overview endpoint. The page is assembled from:
+//   * server journal — GET /api/logs, records of THIS issuer (issuerId === user id)
+//   * local queue    — scanned QRs not yet sent via POST /api/sync. The offline queue
+//                      does not exist in the app yet, so it is always empty here
+//                      (pendingCount = 0). See `readLocalQueueSize`.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { RentalAction, ToolConditionApi, ValidationFlag } from '../entities/journalModel';
+import { useAuth } from '../app/providers/AuthProvider';
+import type {
+  RentalAction,
+  RentalLogEntry,
+  ToolConditionApi,
+  ValidationFlag,
+} from '../entities/journalModel';
+import { ApiError } from './auth';
+import { apiFetch } from './http';
 import { queryKeys } from './queryKeys';
 
 /* ---------------------------------- Types ----------------------------------- */
@@ -42,23 +50,9 @@ export interface IssuerOverviewData {
   history: IssuerHistoryItem[];
 }
 
-/* --------------------------------- Mocks ----------------------------------- */
+/* --------------------------------- helpers --------------------------------- */
 
-const now = () => Math.floor(Date.now() / 1000);
-const ago = (minutes: number) => now() - minutes * 60;
-
-const mockState = {
-  lastSyncAt: ago(120) as number | null,
-  items: [
-    { id: 'l7', time: ago(15), action: 'GIVE', toolName: 'Гайковёрт Makita DTW300', workerName: 'Васильев К. С.', toolCondition: 'Good', sync: 'pending' },
-    { id: 'l6', time: ago(40), action: 'TAKE', toolName: 'Краскопульт BD 390', workerName: 'Смирнова Е. В.', toolCondition: 'Good', sync: 'pending' },
-    { id: 'l5', time: ago(75), action: 'GIVE', toolName: 'Строительный фен Steinel HL 3978', workerName: 'Орлов М. К.', toolCondition: 'Damaged', sync: 'pending' },
-    { id: '104', time: ago(130), action: 'TAKE', toolName: 'Шуруповёрт Metabo BS', workerName: 'Кузнецов Д. А.', toolCondition: 'Good', sync: 'VALID' },
-    { id: '103', time: ago(180), action: 'GIVE', toolName: 'Перфоратор Bosch GBH 2-26', workerName: 'Иванов И. И.', toolCondition: 'Broken', sync: 'VALID' },
-    { id: '102', time: ago(240), action: 'TAKE', toolName: 'Лазерный уровень GLL 3-80', workerName: 'Васильев К. С.', toolCondition: 'Good', sync: 'TIME_DRIFT' },
-    { id: '101', time: ago(300), action: 'TAKE', toolName: 'Болгарка DeWalt DWE4157', workerName: 'Новиков С. Р.', toolCondition: 'Good', sync: 'VALID' },
-  ] as IssuerHistoryItem[],
-};
+const HISTORY_LIMIT = 20;
 
 function startOfTodaySeconds(): number {
   const d = new Date();
@@ -66,30 +60,50 @@ function startOfTodaySeconds(): number {
   return Math.floor(d.getTime() / 1000);
 }
 
+/** Records scanned on this device and not sent yet. No offline queue yet -> 0. */
+function readLocalQueueSize(): number {
+  return 0;
+}
+
 /* ------------------------------- Raw functions ------------------------------ */
 
-export async function getIssuerOverview(): Promise<IssuerOverviewData> {
-  await new Promise((r) => setTimeout(r, 300));
+/** GET /api/logs (newest first) narrowed to the records this issuer synced. */
+export async function getIssuerOverview(issuerId: string): Promise<IssuerOverviewData> {
+  const response = await apiFetch('/api/logs');
+  if (!response.ok) {
+    throw new ApiError(`Не удалось загрузить журнал (${response.status})`, response.status);
+  }
+  const own = ((await response.json()) as RentalLogEntry[]).filter((e) => e.issuerId === issuerId);
+
   const today = startOfTodaySeconds();
-  const todays = mockState.items.filter((i) => i.time >= today);
+  const todays = own.filter((e) => e.qrTimestamp >= today);
+
   return {
-    lastSyncAt: mockState.lastSyncAt,
-    pendingCount: mockState.items.filter((i) => i.sync === 'pending').length,
-    issuedToday: todays.filter((i) => i.action === 'TAKE').length,
-    acceptedToday: todays.filter((i) => i.action === 'GIVE').length,
-    history: [...mockState.items].sort((a, b) => b.time - a.time),
+    // createdAt = when the record reached the server = the issuer's last sync
+    lastSyncAt: own.length ? Math.max(...own.map((e) => e.createdAt)) : null,
+    pendingCount: readLocalQueueSize(),
+    issuedToday: todays.filter((e) => e.action === 'TAKE').length,
+    acceptedToday: todays.filter((e) => e.action === 'GIVE').length,
+    history: own.slice(0, HISTORY_LIMIT).map((e) => ({
+      id: String(e.id),
+      time: e.qrTimestamp,
+      action: e.action,
+      toolName: e.toolName,
+      workerName: e.workerName,
+      toolCondition: e.toolCondition,
+      sync: e.validationFlag,
+    })),
   };
 }
 
 /**
- * Real version: send the local queue — POST /api/sync with [{ qr, scannedAt }, ...] —
- * then store each SyncResult.validationFlag on its record and set lastSyncAt.
- * (A 400 lists bad records as "[n].qr": set those aside and resend the rest, see api.yaml.)
+ * "Send now". With no local queue there is nothing to POST to /api/sync, so this
+ * only lets the hook below re-read the journal. When the queue appears: send
+ * [{ qr, scannedAt }, ...], store each SyncResult.validationFlag (a 400 lists bad
+ * records as "[n].qr": set those aside and resend the rest, see api.yaml).
  */
 export async function syncNow(): Promise<void> {
-  await new Promise((r) => setTimeout(r, 800));
-  mockState.items = mockState.items.map((i) => (i.sync === 'pending' ? { ...i, sync: 'VALID' } : i));
-  mockState.lastSyncAt = now();
+  return;
 }
 
 /* ---------------------------------- Hooks ----------------------------------- */
@@ -97,7 +111,15 @@ export async function syncNow(): Promise<void> {
 const key = [...queryKeys.overview, 'issuer'] as const;
 
 export function useIssuerOverview() {
-  return useQuery({ queryKey: key, queryFn: getIssuerOverview });
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: [...key, user?.id],
+    queryFn: () => {
+      if (!user) throw new Error('Not signed in');
+      return getIssuerOverview(user.id);
+    },
+    enabled: Boolean(user),
+  });
 }
 
 export function useSyncNow() {
