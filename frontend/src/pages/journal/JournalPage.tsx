@@ -78,11 +78,7 @@ const columns: DataTableColumn<JournalRow>[] = [
 
 const ROWS_PER_PAGE = 8;
 
-export interface JournalPageProps {
-  onEdit?: (row: JournalRow) => void;
-}
-
-export default function JournalPage({ onEdit }: JournalPageProps) {
+export default function JournalPage() {
   const theme = useTheme();
   // Same breakpoint as AppLayout / TopAppBar: phones get cards instead of a table
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));

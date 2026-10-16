@@ -7,12 +7,29 @@ import {
   type JournalRow,
   type RentalLogEntry,
 } from '../entities/journalModel';
-import { mockLogEntries } from '../mock/journal';
+import { ApiError } from './auth';
 import { apiFetch } from './http';
 import { queryKeys } from './queryKeys';
 
-/** Flip to false when the journal should come from the backend. */
-const USE_MOCK = true;
+/* --------------------------------- helpers --------------------------------- */
+
+/** ProblemDetails.detail (Russian, meant for the user) if the body has one. */
+async function readDetail(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { detail?: unknown };
+    return typeof body.detail === 'string' ? body.detail : undefined;
+  } catch {
+    return undefined; // 401/403 from the JWT layer come without a body
+  }
+}
+
+async function failFrom(response: Response, fallback: string): Promise<never> {
+  if (response.status === 403) {
+    throw new ApiError('Нет доступа к журналу для вашей роли', 403);
+  }
+  const detail = await readDetail(response);
+  throw new ApiError(detail ?? `${fallback} (${response.status})`, response.status);
+}
 
 /* ------------------------------- Raw functions ------------------------------ */
 
@@ -21,19 +38,9 @@ const USE_MOCK = true;
  * newest first (by qrTimestamp, then id), all validation flags.
  */
 export async function getJournal(filter: JournalFilter = 'all'): Promise<JournalRow[]> {
-  if (USE_MOCK) {
-    // Simulate latency so loading states are visible during dev
-    await new Promise((r) => setTimeout(r, 300));
-    const entries =
-      filter === 'all'
-        ? mockLogEntries
-        : mockLogEntries.filter((e) => e.action === actionToApi[filter]);
-    return entries.map(toJournalRow);
-  }
-
   const query = filter === 'all' ? '' : `?action=${actionToApi[filter]}`;
   const response = await apiFetch(`/api/logs${query}`);
-  if (!response.ok) throw new Error('Не удалось загрузить журнал');
+  if (!response.ok) return failFrom(response, 'Не удалось загрузить журнал');
   return ((await response.json()) as RentalLogEntry[]).map(toJournalRow);
 }
 

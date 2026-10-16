@@ -10,6 +10,7 @@ import { AccountCircleIcon } from '../../../shared/Icons';
 import TopAppBar from '../../../shared/ui/TopAppBar';
 
 import type { RouteHandle } from '../routes';
+import { useGoBack } from '../useGoBack';
 
 const HOME_PATH = '/overview';
 const PROFILE_PATH = '/profile';
@@ -22,13 +23,7 @@ export default function SimpleLayout() {
   const isHome = pathname === HOME_PATH;
   const isProfile = pathname === PROFILE_PATH;
 
-  const handleBack = () => {
-    // idx > 0: this tab has an earlier entry inside the app. Otherwise (deep
-    // link / reload on /profile) go to the overview instead of leaving the app.
-    const canGoBack = ((window.history.state as { idx?: number } | null)?.idx ?? 0) > 0;
-    if (canGoBack) navigate(-1);
-    else navigate(HOME_PATH, { replace: true });
-  };
+  const handleBack = useGoBack();
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
