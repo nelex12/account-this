@@ -1,4 +1,5 @@
 using AccountThis.Api.Configuration;
+using AccountThis.Api.Events;
 using AccountThis.Api.Migrations;
 using AccountThis.Api.Security;
 using AccountThis.Api.Services;
@@ -6,13 +7,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
-using System;
-
-using AccountThis.Api.Models;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Tokens;
-
-using AccountThis.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,9 +23,18 @@ builder.Services.AddControllers(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-var secret = builder.Configuration["JWT_SIGNING_KEY"]; 
-var keyBytes = Base64UrlEncoder.DecodeBytes(secret);   // текст - байты
-var key = new SymmetricSecurityKey(keyBytes);              // байты - ключ
+// Необработанное исключение — 500 с телом ProblemDetails (traceId для поиска в логах), без подробностей наружу.
+// Ответы 401/403 проверки JWT остаются без тела: UseStatusCodePages не подключается
+builder.Services.AddProblemDetails();
+
+// JWT: HMAC-SHA256 с секретом JWT_SIGNING_KEY (тот же, которым подписывает JwtTokenService).
+// Имена claims — как в токене (sub, role, company_id), без переименования в длинные URI
+var jwtSigningKey = builder.Configuration["JWT_SIGNING_KEY"];
+if (string.IsNullOrEmpty(jwtSigningKey))
+{
+    throw new InvalidOperationException(
+        "Переменная JWT_SIGNING_KEY не задана. Скопируйте env.example в .env и сгенерируйте ключи (generate-keys.bat).");
+}
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -40,7 +43,8 @@ builder.Services
         options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            IssuerSigningKey = key,
+            IssuerSigningKey = new SymmetricSecurityKey(Base64UrlEncoder.DecodeBytes(jwtSigningKey)),
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
             ValidateIssuer = false,
             ValidateAudience = false,
             RoleClaimType = "role",
@@ -48,9 +52,8 @@ builder.Services
     });
 builder.Services.AddAuthorization();
 
-// Строка подключения собирается из POSTGRES_* (см. DatabaseConfiguration). Без миграций, БД уже существует
+// Строка подключения собирается из POSTGRES_* (см. DatabaseConfiguration)
 var connectionString = DatabaseConfiguration.BuildConnectionString(builder.Configuration);
-
 var dataSource = new NpgsqlDataSourceBuilder(connectionString).Build();
 builder.Services.AddSingleton(dataSource);
 
@@ -60,6 +63,12 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 builder.Services.AddSingleton<ISignatureService, SignatureService>();
+
+// События аудита (docs/events.md): издатель — фоновый отправитель в RabbitMQ, потребитель очереди audit → audit_events
+builder.Services.AddSingleton<RabbitMqEventPublisher>();
+builder.Services.AddSingleton<IEventPublisher>(sp => sp.GetRequiredService<RabbitMqEventPublisher>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RabbitMqEventPublisher>());
+builder.Services.AddHostedService<AuditConsumer>();
 
 // Бизнес-логика контроллеров; к БД обращаются через NpgsqlDataSource
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -73,9 +82,10 @@ var app = builder.Build();
 // Схема БД приводится к актуальной до приёма запросов (Migrations/*.sql)
 await DatabaseMigrator.MigrateAsync(dataSource, app.Logger);
 
+app.UseExceptionHandler();
+
 // Swagger включается только если явно указан флаг в переменных окружения
-var swaggerEnabled = builder.Configuration.GetValue<bool>("ENABLE_SWAGGER");
-if (swaggerEnabled)
+if (builder.Configuration.GetValue<bool>("ENABLE_SWAGGER"))
 {
     app.UseSwagger();
     app.UseSwaggerUI();

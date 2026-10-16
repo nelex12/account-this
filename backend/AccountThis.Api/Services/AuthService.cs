@@ -1,8 +1,12 @@
+using AccountThis.Api.Events;
 using AccountThis.Api.Models;
 using AccountThis.Api.Security;
 using Microsoft.AspNetCore.WebUtilities;
 using Npgsql;
 using System.Security.Cryptography;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Unicode;
 
 namespace AccountThis.Api.Services;
 
@@ -73,9 +77,17 @@ public class AuthService(
     IPasswordHasher passwordHasher,
     IJwtTokenService jwtTokenService,
     ISignatureService signatureService,
+    IEventPublisher eventPublisher,
     TimeProvider timeProvider) : IAuthService
 {
     public static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
+
+    // Токен сертификата: camelCase-имена полей по api.yaml, UUID — строчные hex 8-4-4-4-12 (формат "D").
+    // Кириллица не экранируется (\uXXXX втрое длиннее UTF-8), чтобы QR оставался коротким
+    private static readonly JsonSerializerOptions TokenJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+    };
 
     public async Task<RegisterStatus> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken)
     {
@@ -97,15 +109,17 @@ public class AuthService(
                 await using var cmdAddWorkerOrIssuer = new NpgsqlCommand(
                     "INSERT INTO " +
                     "users (company_id, full_name, phone, password_hash, role) " +
-                    "VALUES (@companyId, @fullName, @phone, @hash, @role::user_role)",
+                    "VALUES (@companyId, @fullName, @phone, @hash, @role::user_role) " +
+                    "RETURNING id",
                     conn);
                 cmdAddWorkerOrIssuer.Parameters.AddWithValue("companyId", request.CompanyId!.Value);
                 cmdAddWorkerOrIssuer.Parameters.AddWithValue("fullName", request.FullName);
                 cmdAddWorkerOrIssuer.Parameters.AddWithValue("phone", normalizedPhone);
                 cmdAddWorkerOrIssuer.Parameters.AddWithValue("hash", hash);
                 cmdAddWorkerOrIssuer.Parameters.AddWithValue("role", request.Role!.Value.ToString());
-                await cmdAddWorkerOrIssuer.ExecuteNonQueryAsync(cancellationToken);
+                var userId = (Guid)(await cmdAddWorkerOrIssuer.ExecuteScalarAsync(cancellationToken))!;
 
+                PublishRegistered(request.CompanyId.Value, userId, request.Role.Value);
                 return RegisterStatus.Created;
             }
             else if (request.Role == UserRole.Owner)
@@ -129,7 +143,8 @@ public class AuthService(
                 await using var cmdAddOwner = new NpgsqlCommand(
                     "INSERT INTO " +
                     "users (company_id, full_name, phone, password_hash, role, is_approved) " +
-                    "VALUES (@companyId, @fullName, @phone, @hash, @role::user_role, True)",
+                    "VALUES (@companyId, @fullName, @phone, @hash, @role::user_role, True) " +
+                    "RETURNING id",
                     conn,
                     transaction);
                 cmdAddOwner.Parameters.AddWithValue("companyId", companyId);
@@ -138,10 +153,11 @@ public class AuthService(
                 cmdAddOwner.Parameters.AddWithValue("hash", hash);
                 cmdAddOwner.Parameters.AddWithValue("role", request.Role!.Value.ToString());
 
-                await cmdAddOwner.ExecuteNonQueryAsync(cancellationToken);
+                var ownerId = (Guid)(await cmdAddOwner.ExecuteScalarAsync(cancellationToken))!;
 
                 await transaction.CommitAsync(cancellationToken);
 
+                PublishRegistered(companyId, ownerId, UserRole.Owner);
                 return RegisterStatus.Created;
 
             }
@@ -156,6 +172,9 @@ public class AuthService(
         }
         throw new ArgumentOutOfRangeException(nameof(request), $"Неизвестная роль: {request.Role}");
     }
+
+    private void PublishRegistered(Guid companyId, Guid userId, UserRole role) =>
+        eventPublisher.Publish(EventTypes.UserRegistered, companyId, userId, new { userId, role });
 
     public async Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
     {
@@ -208,6 +227,8 @@ public class AuthService(
 
         // Вход начинает новую сессию: новый family_id
         var refreshToken = await InsertRefreshTokenAsync(conn, null, userId, Guid.NewGuid(), cancellationToken);
+
+        eventPublisher.Publish(EventTypes.AuthLoggedIn, companyId, userId, new { });
         return new LoginResult(LoginStatus.Success, jwtToken, refreshToken);
     }
 
@@ -261,8 +282,16 @@ public class AuthService(
         // Уволенному тоже гасим: сессия ему больше не нужна
         if (isRevoked || !isActive)
         {
-            await RevokeFamilyAsync(conn, transaction, familyId, now, cancellationToken);
+            var revoked = await RevokeFamilyAsync(conn, transaction, familyId, now, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+
+            // Погасился хоть один токен — сессия была жива, а погашенным токеном воспользовались повторно (кража).
+            // Ничего не погасилось — сессия уже была завершена (выход, увольнение), это не кража
+            if (isRevoked && revoked > 0)
+            {
+                eventPublisher.Publish(EventTypes.AuthSessionReuseDetected, companyId, userId, new { });
+            }
+
             return new RefreshResult(RefreshStatus.Failed);
         }
 
@@ -328,7 +357,7 @@ public class AuthService(
         return WebEncoders.Base64UrlEncode(refreshTokenBytes);
     }
 
-    private static async Task RevokeFamilyAsync(
+    private static async Task<int> RevokeFamilyAsync(
         NpgsqlConnection conn, NpgsqlTransaction transaction, Guid familyId, long now, CancellationToken cancellationToken)
     {
         await using var cmd = new NpgsqlCommand(
@@ -337,7 +366,7 @@ public class AuthService(
             transaction);
         cmd.Parameters.AddWithValue("now", now);
         cmd.Parameters.AddWithValue("familyId", familyId);
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        return await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     // Токен — base64url от 32 байт. Всё остальное (нет cookie, мусор) заведомо не найдётся в БД
@@ -373,12 +402,50 @@ public class AuthService(
         return new ServerKeyResponse { ServerPublicKey = signatureService.ServerPublicKey, ServerTime = timeProvider.GetUtcNow().ToUnixTimeSeconds() };
     }
 
-    public Task<WorkerCertResult> IssueWorkerCertificateAsync(Guid workerId, CancellationToken cancellationToken)
+    public async Task<WorkerCertResult> IssueWorkerCertificateAsync(Guid workerId, CancellationToken cancellationToken)
     {
-        // 1. Прочитать full_name, is_approved, is_active из users.
-        // 2. Сгенерировать временную пару Ed25519 (приватный ключ не сохраняется).
-        // 3. token = base64url(JSON ServerSignedToken), ExpiresAt = IssuedAt + QrFormat.CertificateLifetime.
-        // 4. ServerSignature = подпись сервера над QrFormat.TokenSignaturePrefix + token.
-        throw new NotImplementedException();
+        string fullName;
+        await using (var conn = await dataSource.OpenConnectionAsync(cancellationToken))
+        {
+            await using var cmd = new NpgsqlCommand(
+                "SELECT full_name, is_approved, is_active FROM users WHERE id = @id",
+                conn);
+            cmd.Parameters.AddWithValue("id", workerId);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            // Пользователя из действующего JWT нет в БД — сертификат не выдаётся, как уволенному
+            if (!await reader.ReadAsync(cancellationToken) || !reader.GetBoolean(2))
+            {
+                return new WorkerCertResult(WorkerCertStatus.Deactivated);
+            }
+
+            if (!reader.GetBoolean(1))
+            {
+                return new WorkerCertResult(WorkerCertStatus.NotApproved);
+            }
+
+            fullName = reader.GetString(0);
+        }
+
+        // Приватный ключ отдаётся сотруднику и сервером не сохраняется
+        var keyPair = signatureService.GenerateKeyPair();
+        var now = timeProvider.GetUtcNow().ToUnixTimeSeconds();
+        var tokenData = new ServerSignedToken
+        {
+            WorkerId = workerId,
+            Fio = fullName,
+            IssuedAt = now,
+            ExpiresAt = now + (long)QrFormat.CertificateLifetime.TotalSeconds,
+            WorkerPublicKey = keyPair.PublicKey,
+        };
+
+        var token = WebEncoders.Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(tokenData, TokenJsonOptions));
+        return new WorkerCertResult(WorkerCertStatus.Issued, new WorkerCertificate
+        {
+            Token = token,
+            ServerSignature = signatureService.SignWithServerKey(QrFormat.TokenSignedData(token)),
+            TemporaryPrivateKey = keyPair.PrivateKey,
+            ServerTime = now,
+        });
     }
 }

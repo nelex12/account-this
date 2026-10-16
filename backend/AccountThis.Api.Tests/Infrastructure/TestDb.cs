@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 
@@ -148,6 +149,91 @@ public sealed class TestDb(string connectionString)
         cmd.Parameters.AddWithValue("hash", RefreshTokenHash(refreshToken));
         var updated = await cmd.ExecuteNonQueryAsync();
         Assert.True(updated == 1, "Подготовка теста: refresh token не найден в refresh_tokens по SHA-256");
+    }
+
+    // ---------- tools ----------
+
+    public async Task<(string Condition, long ConditionUpdatedAt)> FindToolConditionAsync(Guid toolId)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand("SELECT condition::text, condition_updated_at FROM tools WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("id", toolId);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync(), "Инструмент не найден в tools");
+        return (reader.GetString(0), reader.GetInt64(1));
+    }
+
+    // Состояние инструмента выставлено «давно»: операции из /api/sync с недавним timestamp его обновляют
+    public async Task BackdateToolConditionAsync(Guid toolId, TimeSpan back)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE tools SET condition_updated_at = condition_updated_at - @shift WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("shift", (long)back.TotalSeconds);
+        cmd.Parameters.AddWithValue("id", toolId);
+        Assert.True(await cmd.ExecuteNonQueryAsync() == 1, "Подготовка теста: инструмент не найден");
+    }
+
+    // ---------- rental_logs ----------
+
+    public async Task<long> CountRentalLogsAsync(Guid companyId)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand("SELECT count(*) FROM rental_logs WHERE company_id = @id", conn);
+        cmd.Parameters.AddWithValue("id", companyId);
+        return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    // ---------- audit_events ----------
+
+    public sealed record AuditRow(Guid EventId, string Type, Guid CompanyId, Guid ActorId, long OccurredAt, JsonElement Data);
+
+    public async Task<List<AuditRow>> FindAuditEventsAsync(Guid companyId, string type)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "SELECT event_id, type, company_id, actor_id, occurred_at, data::text FROM audit_events " +
+            "WHERE company_id = @companyId AND type = @type ORDER BY id",
+            conn);
+        cmd.Parameters.AddWithValue("companyId", companyId);
+        cmd.Parameters.AddWithValue("type", type);
+
+        var rows = new List<AuditRow>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            using var data = JsonDocument.Parse(reader.GetString(5));
+            rows.Add(new AuditRow(reader.GetGuid(0), reader.GetString(1), reader.GetGuid(2), reader.GetGuid(3),
+                reader.GetInt64(4), data.RootElement.Clone()));
+        }
+
+        return rows;
+    }
+
+    // Запись в audit_events асинхронная (RabbitMQ → потребитель), поэтому ждём с таймаутом
+    public async Task<List<AuditRow>> WaitForAuditEventsAsync(Guid companyId, string type, int count = 1, int timeoutSeconds = 15)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+        while (true)
+        {
+            var rows = await FindAuditEventsAsync(companyId, type);
+            if (rows.Count >= count || DateTime.UtcNow > deadline)
+            {
+                Assert.True(rows.Count >= count,
+                    $"За {timeoutSeconds} с в audit_events появилось {rows.Count} событий {type}, ожидалось {count}");
+                return rows;
+            }
+
+            await Task.Delay(100);
+        }
+    }
+
+    public async Task<long> CountAuditEventsAsync(Guid eventId)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand("SELECT count(*) FROM audit_events WHERE event_id = @id", conn);
+        cmd.Parameters.AddWithValue("id", eventId);
+        return (long)(await cmd.ExecuteScalarAsync())!;
     }
 
     private async Task<NpgsqlConnection> OpenAsync()

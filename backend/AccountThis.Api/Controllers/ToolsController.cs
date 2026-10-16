@@ -32,7 +32,7 @@ public class ToolsController(IToolsService toolsService) : ControllerBase
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<Tool>> CreateTool([FromBody] CreateToolRequest request, CancellationToken cancellationToken)
     {
-        var tool = await toolsService.CreateAsync(User.GetCompanyId(), request, cancellationToken);
+        var tool = await toolsService.CreateAsync(User.GetCompanyId(), User.GetUserId(), request, cancellationToken);
         return CreatedAtAction(nameof(GetTool), new { id = tool.Id }, tool);
     }
 
@@ -60,7 +60,7 @@ public class ToolsController(IToolsService toolsService) : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateToolCondition(Guid id, [FromBody] UpdateToolConditionRequest request, CancellationToken cancellationToken)
     {
-        return await toolsService.UpdateConditionAsync(User.GetCompanyId(), id, request, cancellationToken) ? Ok() : ToolNotFound(id);
+        return await toolsService.UpdateConditionAsync(User.GetCompanyId(), User.GetUserId(), id, request, cancellationToken) ? Ok() : ToolNotFound(id);
     }
 
     /// <summary>
@@ -73,7 +73,7 @@ public class ToolsController(IToolsService toolsService) : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteTool(Guid id, CancellationToken cancellationToken)
     {
-        return await toolsService.DeactivateAsync(User.GetCompanyId(), id, cancellationToken) ? Ok() : ToolNotFound(id);
+        return await toolsService.DeactivateAsync(User.GetCompanyId(), User.GetUserId(), id, cancellationToken) ? Ok() : ToolNotFound(id);
     }
 
     private ObjectResult ToolNotFound(Guid id) =>

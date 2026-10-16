@@ -2,7 +2,7 @@
 
 Система учёта и выдачи инструментов: ASP.NET Core 8 Web API + PostgreSQL 16 (Npgsql напрямую, без ORM),
 офлайн-протокол QR с подписями Ed25519, сессии access JWT (15 мин) + refresh token в HttpOnly cookie,
-RabbitMQ (RabbitMQ.Client напрямую) для журнала аудита. Учебный проект: backend пишет пользователь, Claude помогает и проверяет.
+RabbitMQ (RabbitMQ.Client напрямую) для журнала аудита. Учебный проект, backend реализован полностью (все блоки 1–7).
 
 ## Источники истины
 - `api.yaml` — контракт API (статусы, тела, ошибки, форматы). При расхождении кода и `api.yaml` прав `api.yaml`.
@@ -18,7 +18,7 @@ RabbitMQ (RabbitMQ.Client напрямую) для журнала аудита. 
 Сервисы возвращают enum-статусы (`RegisterStatus`, `LoginStatus`...), а не бросают исключения на бизнес-ошибки.
 
 `backend/AccountThis.Api.Tests/`: `Security/` — unit-тесты, `Api/` — интеграционные через `ApiFactory`
-(всё приложение + PostgreSQL в Testcontainers, нужен запущенный Docker; с блока 7 — и RabbitMQ).
+(всё приложение + PostgreSQL и RabbitMQ в Testcontainers, нужен запущенный Docker).
 Refresh token в тестах передаётся вручную: клиент `factory.CookieClient()`, хелперы в `Infrastructure/AuthRequests.cs`.
 
 ## Команды (пользователь работает в Visual Studio — тесты через Обозреватель тестов)
@@ -27,30 +27,21 @@ dotnet test backend/AccountThis.Api/AccountThis.Api.slnx
 dotnet test backend/AccountThis.Api/AccountThis.Api.slnx --filter "FullyQualifiedName~Security"
 ```
 
-## Как работаем (режим обучения)
+## Как работаем
 - Общение только на русском. Ответы краткие, развёрнуто — только объяснения.
-- **Реализацию в `AccountThis.Api` пишет пользователь, NuGet-пакеты ставит тоже он.** Claude не пишет её за него без явной просьбы:
-  объясняет, даёт направление и подсказки, показывает нужное API библиотеки, отвечает на вопросы.
-- **Тесты пишет Claude** — по `api.yaml`, до реализации. Тест проверяет контракт, а не устройство кода.
-  Если тест противоречит `api.yaml` или явно неудобен, это обсуждается, а не обходится.
-- **Ревью**: когда пользователь просит проверить, сначала прогнать тесты, затем ревью кода:
-  соответствие `api.yaml`, безопасность (SQL-инъекции, изоляция по company_id, утечки статуса аккаунта),
-  обработка ошибок Npgsql, async/CancellationToken, освобождение соединений. Объяснять *почему*, а не только *что*.
-- Одна сессия — один блок работы. Прогресс виден по красным тестам и оставшимся `NotImplementedException`.
+- Режим обучения завершён: Claude пишет реализацию backend и тесты сам. Тесты — по `api.yaml`, проверяют контракт, а не устройство кода.
+- Перед изменением — прогнать тесты; после — снова. Ревью: соответствие `api.yaml`, безопасность (SQL-инъекции,
+  изоляция по company_id, утечки статуса аккаунта), обработка ошибок Npgsql, async/CancellationToken, освобождение соединений.
+- Не ломать контракт, на который опирается фронтенд (`frontend/src/api/*`): менять `api.yaml` только осознанно.
 
-## Порядок блоков
-Каждый следующий зависит от предыдущих.
-1. `Security/` — `PasswordHasher`, `JwtTokenService`, `SignatureService` (тесты в `Tests/Security/`).
-2. Middleware в `Program.cs`: JWT Bearer, роли, 401/403 по `api.yaml` (тесты `Api/AuthenticationPipelineTests`).
-3. `AuthService`: register, login (+ refresh token в cookie), refresh, logout, server-key, worker-cert.
-   JWT — 15 минут. Таблица `refresh_tokens`: ротация, повторное предъявление гасит сессию (тесты `Api/RefreshTests`, `Api/LogoutTests`).
-4. `CompaniesService`, `UsersService`. Увольнение пишет `deactivated_at` и гасит все refresh token пользователя
-   (тесты `Api/DeactivationRevokesSessionsTests`).
-5. `ToolsService`.
-6. `QrPayloadParser` + `SyncService` (sync, logs), включая флаг `WORKER_DEACTIVATED`.
-7. RabbitMQ: публикация событий из сервисов после COMMIT + потребитель очереди `audit` → `audit_events` (`docs/events.md`).
-
+## Устройство backend (кратко)
+- `Security/` — Argon2id-хеш паролей, JWT (HS256, 15 мин), Ed25519 (`SignatureService`).
+- `Services/` — бизнес-логика на Npgsql; изоляция компаний — `company_id` из JWT в каждом WHERE.
+  `QrFormat.cs` — строгий разбор строки QR AT1; `SyncService` — флаги ValidationFlag, идемпотентность, журнал.
+- `Events/` — аудит через RabbitMQ: `RabbitMqEventPublisher` (очередь в памяти + фоновая отправка с publisher confirms,
+  HTTP не ждёт брокера), `AuditConsumer` (очередь `audit` → `audit_events`, ack после записи, отказы → `audit.dead`).
+  Сервисы вызывают `IEventPublisher.Publish` только после COMMIT и только при реальном изменении состояния.
 
 ## Исключение и разделение ролей
 Если сейчас ты общаешься с разработчиком фронтенда, то текущие инструкции тебя не касаются. Старайся работать локально в папке frontend, выходя из неё только по необходимости.
-Данный файл создан backend разработчиком для обучения
+Данный файл ведёт backend-разработчик.

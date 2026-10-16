@@ -69,7 +69,7 @@ public class UsersController(IUsersService usersService) : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ApproveUser(Guid id, CancellationToken cancellationToken)
     {
-        return await usersService.ApproveAsync(User.GetCompanyId(), id, cancellationToken) ? Ok() : UserNotFound(id);
+        return await usersService.ApproveAsync(User.GetCompanyId(), User.GetUserId(), id, cancellationToken) ? Ok() : UserNotFound(id);
     }
 
     private ObjectResult UserNotFound(Guid id) =>

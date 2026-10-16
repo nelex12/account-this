@@ -1,4 +1,4 @@
-﻿using AccountThis.Api.Models;
+using AccountThis.Api.Models;
 using AccountThis.Api.Security;
 using AccountThis.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -23,7 +23,7 @@ public class SyncController(ISyncService syncService) : ControllerBase
     [Authorize(Roles = "Issuer")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<List<SyncResult>>> Sync([FromBody] List<SyncRecord> records, CancellationToken cancellationToken)
+    public async Task<ActionResult<List<SyncResult>>> Sync([FromBody] List<SyncRecord?> records, CancellationToken cancellationToken)
     {
         var outcome = await syncService.SyncAsync(User.GetCompanyId(), User.GetUserId(), records, cancellationToken);
         if (outcome.IsRejected)
@@ -48,8 +48,21 @@ public class SyncController(ISyncService syncService) : ControllerBase
     [Authorize(Roles = "Issuer,Owner")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<List<RentalLogEntry>>> GetLogs([FromQuery] RentalAction? action, [FromQuery] Guid? toolId, CancellationToken cancellationToken)
+    public async Task<ActionResult<List<RentalLogEntry>>> GetLogs([FromQuery] string? action, [FromQuery] Guid? toolId, CancellationToken cancellationToken)
     {
-        return await syncService.GetLogsAsync(User.GetCompanyId(), action, toolId, cancellationToken);
+        // Стандартная привязка enum принимает и "take", и "0"; по api.yaml допустимы только TAKE и GIVE
+        RentalAction? parsedAction = null;
+        if (action is not null)
+        {
+            if (!Enum.GetNames<RentalAction>().Contains(action, StringComparer.Ordinal))
+            {
+                ModelState.AddModelError("action", $"Допустимые значения: {string.Join(", ", Enum.GetNames<RentalAction>())}");
+                return ValidationProblem(ModelState);
+            }
+
+            parsedAction = Enum.Parse<RentalAction>(action);
+        }
+
+        return await syncService.GetLogsAsync(User.GetCompanyId(), parsedAction, toolId, cancellationToken);
     }
 }
