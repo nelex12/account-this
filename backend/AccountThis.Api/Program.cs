@@ -47,6 +47,8 @@ builder.Services
             ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
             ValidateIssuer = false,
             ValidateAudience = false,
+            // По умолчанию токен принимается ещё 5 минут после истечения; по api.yaml срок — ровно 15 минут
+            ClockSkew = TimeSpan.Zero,
             RoleClaimType = "role",
         };
     });
