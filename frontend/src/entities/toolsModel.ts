@@ -1,4 +1,4 @@
-// src/entities/toolsModel.ts
+
 
 /**
  * Mirrors api.yaml exactly.
