@@ -8,6 +8,7 @@ public class CreateToolRequest
     // Не длиннее 100 символов: название попадает в QR сотрудника (toolName в op)
     [Required]
     [MaxLength(100)]
+    [NoNullCharacter]
     public string Name { get; set; } = string.Empty;
 }
 
@@ -18,6 +19,7 @@ public class UpdateToolConditionRequest
 {
     public ToolCondition? Condition { get; set; }
 
+    [NoNullCharacter]
     public string? Comment { get; set; }
 }
 

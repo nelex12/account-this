@@ -72,6 +72,12 @@ info:
     Строка QR сотрудника: `AT1.<token>.<serverSignature>.<op>.<workerSignature>` (схема OfflineRentalPayload,
     там же правила строгого разбора).
 
+    ## Значения в запросах
+    - Перечисления (роль, состояние инструмента, действие) — строго имя значения с учётом регистра: `Owner`,
+      `Damaged`, `TAKE`. Другой регистр (`owner`) и числа (`2`, `"2"`) — 400.
+    - Сохраняемые строки (ФИО, название компании, название инструмента, комментарий) не могут содержать
+      символ U+0000: PostgreSQL его не хранит. Такая строка — 400.
+
     ## Ошибки
     - **400** — тело ValidationProblemDetails (`application/problem+json`). Ключи `errors` — путь к полю
       в именах JSON: `fullName`, `[3].qr` (элемент массива, нумерация с 0), `id`, `action` (параметры пути и запроса).
@@ -81,7 +87,7 @@ info:
     - **401 / 403 / 404 / 409 от контроллера** (бизнес-проверки) — тело ProblemDetails (`application/problem+json`),
       `detail` — понятное пользователю пояснение на русском.
     - Во всех ProblemDetails есть `traceId` — идентификатор запроса для поиска в логах сервера.
-  version: 5.1.0
+  version: 5.2.0
 
 servers:
   - url: http://localhost
@@ -165,6 +171,8 @@ paths:
                 status: 409
                 detail: Пользователь с таким телефоном уже существует
                 traceId: 00-2f1c...-01
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
 
   /api/auth/login:
     post:
@@ -221,6 +229,8 @@ paths:
                 status: 403
                 detail: Аккаунт ещё не подтверждён владельцем
                 traceId: 00-2f1c...-01
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
 
   /api/auth/refresh:
     post:
@@ -567,6 +577,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
 
   /api/tools/{id}:
     get:
@@ -633,6 +645,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
 
     delete:
       tags: [Tools]
@@ -741,6 +755,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
 
   /api/logs:
     get:
@@ -907,6 +923,19 @@ components:
               fullName: ['The field FullName must be a string or array type with a maximum length of ''100''.']
               role: ['The Role field is required.']
             traceId: 00-2f1c...-01
+    UnsupportedMediaType:
+      description: |
+        Тело запроса не в JSON: нет заголовка `Content-Type: application/json` (или указан другой тип).
+        Отвечает сам ASP.NET Core до разбора тела
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: https://tools.ietf.org/html/rfc9110#section-15.5.16
+            title: Unsupported Media Type
+            status: 415
+            traceId: 00-2f1c...-01
     Unauthorized:
       description: Не передан, просрочен или недействителен JWT. Без тела; заголовок `WWW-Authenticate` со схемой Bearer
       headers:
@@ -1049,8 +1078,12 @@ components:
       properties:
         fullName:
           type: string
+          minLength: 1
           maxLength: 100
-          description: ФИО. Попадает в QR сотрудника (fio в token), поэтому ограничено 100 символами
+          pattern: '\S'
+          description: |
+            ФИО. Попадает в QR сотрудника (fio в token), поэтому ограничено 100 символами.
+            Не пустое и не только из пробелов (pattern `\S` — есть хотя бы один непробельный символ)
           example: "Иванов Иван Иванович"
         phone:
           type: string
@@ -1062,6 +1095,9 @@ components:
         password:
           type: string
           format: password
+          minLength: 1
+          pattern: '\S'
+          description: Не пустой и не только из пробелов
           example: "securePassword123"
         role:
           $ref: '#/components/schemas/UserRole'
@@ -1074,9 +1110,11 @@ components:
           example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
         companyName:
           type: string
+          minLength: 1
           maxLength: 100
+          pattern: '\S'
           description: |
-            Только Owner, обязателен для него. Название новой компании (не уникально).
+            Только Owner, обязателен для него. Название новой компании (не уникально), не только из пробелов.
             Owner становится первым пользователем компании и подтверждается сразу
           example: "ООО Ромашка"
 
@@ -1092,6 +1130,9 @@ components:
         password:
           type: string
           format: password
+          minLength: 1
+          pattern: '\S'
+          description: Не пустой и не только из пробелов
           example: "securePassword123"
 
     LoginResponse:
@@ -1132,8 +1173,12 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
           maxLength: 100
-          description: Название. Попадает в QR сотрудника (toolName в op), поэтому ограничено 100 символами
+          pattern: '\S'
+          description: |
+            Название. Попадает в QR сотрудника (toolName в op), поэтому ограничено 100 символами.
+            Не пустое и не только из пробелов
           example: "Дрель Bosch GSB 16 RE"
 
     UpdateToolConditionRequest:
@@ -1141,9 +1186,10 @@ components:
       description: Не переданное (или null) поле не меняется; comment = "" очищает комментарий.
       properties:
         condition:
-          # В OpenAPI 3.0 nullable действует только рядом с type, поэтому значения ToolCondition перечислены здесь
+          # В OpenAPI 3.0 nullable действует только рядом с type, поэтому значения ToolCondition перечислены здесь.
+          # При enum значение null нужно перечислить и в самом enum (OpenAPI 3.0.3), одного nullable мало
           type: string
-          enum: [Good, Damaged, Broken]
+          enum: [Good, Damaged, Broken, null]
           nullable: true
           description: Новое состояние; меняет и время изменения состояния (текущее время сервера)
         comment:
@@ -1320,7 +1366,12 @@ components:
         - action и toolCondition — строго значения enum с учётом регистра (`TAKE`, но не `take` и не `0`).
 
         Типичная длина — 600–800 символов (два UUID добавляют около 90 символов).
-      example: "AT1.eyJ3b3JrZXJJZCI6NX0.c2lnbmF0dXJl.eyJhY3Rpb24iOiJUQUtFIn0.c2lnbmF0dXJl"
+
+        `pattern` описывает только внешнюю структуру: `AT1`, части base64url, подписи по 86 символов
+        (64 байта без паддинга). Содержимое token и op (JSON) шаблоном не проверить — его проверяет строгий разбор.
+        Подписи в примере — случайные байты: строка разбирается, но при синхронизации подпись не пройдёт.
+      pattern: '^AT1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{86}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{86}$'
+      example: "AT1.eyJ3b3JrZXJJZCI6IjViMWQwYzhhLTJmNGUtNGE2My05ZDE3LThlMGMzYTZmNGIyMSIsImZpbyI6ItCY0LLQsNC90L7QsiDQmNCy0LDQvSDQmNCy0LDQvdC-0LLQuNGHIiwiaXNzdWVkQXQiOjE3OTAwMDAwMDAsImV4cGlyZXNBdCI6MTc5MDA0MzIwMCwid29ya2VyUHVibGljS2V5IjoiaEgtd0h0TFREbnJIY1B3bnBtbmdUb2NvRmlJcVhaZ1RvWThiTkhFTzNnMCJ9.qcpHKayphsIxC7eOZs1bbrHzxAwVKxXTLi0Z6H1ji1OQNAZ1DVFehtjFmPy5h5yMDcyt9AHFJlGv7dy9nqaxGQ.eyJhY3Rpb24iOiJUQUtFIiwidG9vbENvbmRpdGlvbiI6Ikdvb2QiLCJ0b29sSWQiOiIxN2M0ZTVhMi05M2I4LTRmMTAtOGQ2YS0wYjJlN2M5ZDRmMzUiLCJ0b29sTmFtZSI6ItCU0YDQtdC70YwgQm9zY2ggR1NCIDE2IFJFIiwidGltZXN0YW1wIjoxNzkwMDAzNjAwfQ.hvQiKboFrwcbTuy3_qps18bQRr2x3lLH66D3r4LnPaoS5_PbKwhRgoDz3hEm9FuehgxO7VCewXXK1X50JMA8aw"
 
     ServerSignedToken:
       type: object

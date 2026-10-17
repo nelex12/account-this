@@ -27,6 +27,7 @@ public class RegisterRequest : IValidatableObject
     // Не длиннее 100 символов: ФИО попадает в QR сотрудника (fio в token)
     [Required]
     [MaxLength(100)]
+    [NoNullCharacter]
     public string FullName { get; set; } = string.Empty;
 
     // Любой допустимый формат (см. PhoneFormat), сохраняется нормализованным
@@ -47,6 +48,7 @@ public class RegisterRequest : IValidatableObject
     // Только Owner (обязателен): название новой компании, не длиннее 100 символов. Не уникально.
     // Owner становится первым пользователем компании и подтверждается сразу.
     [MaxLength(100)]
+    [NoNullCharacter]
     public string? CompanyName { get; set; }
 
     // Взаимосвязь полей зависит от роли. Если Role не передана, это ошибка [Required] — здесь не дублируется.

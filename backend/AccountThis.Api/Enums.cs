@@ -2,7 +2,7 @@
 
 namespace AccountThis.Api.Models
 {
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(StrictEnumConverter<UserRole>))]
     public enum UserRole
     {
         Worker,
@@ -10,7 +10,7 @@ namespace AccountThis.Api.Models
         Owner
     }
 
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(StrictEnumConverter<ToolCondition>))]
     public enum ToolCondition
     {
         Good,
@@ -18,7 +18,7 @@ namespace AccountThis.Api.Models
         Broken
     }
 
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(StrictEnumConverter<RentalAction>))]
     public enum RentalAction
     {
         TAKE,
@@ -30,7 +30,7 @@ namespace AccountThis.Api.Models
     // UNKNOWN_WORKER и UNKNOWN_TOOL — сотрудника или инструмента нет в компании завхоза
     // (из другой компании неотличимо от несуществующего).
     // WORKER_DEACTIVATED — сотрудник уволен, и timestamp >= users.deactivated_at (офлайн-сертификат не отзывается).
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(StrictEnumConverter<ValidationFlag>))]
     public enum ValidationFlag
     {
         VALID,
@@ -45,7 +45,7 @@ namespace AccountThis.Api.Models
     }
 
     // Совпадает с notification_type в БД (Migrations/0002_outbox_notifications.sql)
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(StrictEnumConverter<NotificationType>))]
     public enum NotificationType
     {
         EmployeeAwaitingApproval,

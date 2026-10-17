@@ -72,6 +72,17 @@ public class ToolsTests(ApiFactory factory)
         await AssertValidationError(response, "name");
     }
 
+    // PostgreSQL не хранит символ U+0000: такая строка — 400 на валидации, а не 500 на INSERT
+    [Fact]
+    public async Task Create_NameWithNullCharacter_Returns400()
+    {
+        var owner = await factory.CreateOwnerAsync(_client);
+
+        var response = await _client.SendAs(owner, HttpMethod.Post, "/api/tools", new { name = "Дрель\u0000" });
+
+        await AssertValidationError(response, "name");
+    }
+
     [Fact]
     public async Task Create_ByWorker_Returns403()
     {
@@ -186,6 +197,53 @@ public class ToolsTests(ApiFactory factory)
         var response = await _client.SendAs(owner, HttpMethod.Patch, $"/api/tools/{id}", new { condition = "Lost" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    // condition — строго имя значения (api.yaml, «Значения в запросах»): число и другой регистр — 400.
+    // Раньше 0 молча становился Good, поэтому исходное состояние — Broken
+    [Theory]
+    [InlineData(0)]
+    [InlineData("0")]
+    [InlineData("good")]
+    public async Task Patch_ConditionNotExactName_Returns400AndDoesNotChange(object condition)
+    {
+        var owner = await factory.CreateOwnerAsync(_client);
+        var id = await _client.CreateToolAsync(owner);
+        await _client.SendAs(owner, HttpMethod.Patch, $"/api/tools/{id}", new { condition = "Broken" });
+
+        var response = await _client.SendAs(owner, HttpMethod.Patch, $"/api/tools/{id}", new { condition });
+
+        await AssertValidationError(response, "$.condition");
+        Assert.Equal("Broken", (await GetTool(owner, id)).GetProperty("condition").GetString());
+    }
+
+    // condition: null — поле не меняется, как не переданное
+    [Fact]
+    public async Task Patch_NullCondition_KeepsCondition()
+    {
+        var owner = await factory.CreateOwnerAsync(_client);
+        var id = await _client.CreateToolAsync(owner);
+        await _client.SendAs(owner, HttpMethod.Patch, $"/api/tools/{id}", new { condition = "Damaged" });
+
+        var response = await _client.SendAs(owner, HttpMethod.Patch, $"/api/tools/{id}",
+            new { condition = (string?)null, comment = "Проверен" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var tool = await GetTool(owner, id);
+        Assert.Equal("Damaged", tool.GetProperty("condition").GetString());
+        Assert.Equal("Проверен", tool.GetProperty("comment").GetString());
+    }
+
+    [Fact]
+    public async Task Patch_CommentWithNullCharacter_Returns400AndDoesNotChange()
+    {
+        var owner = await factory.CreateOwnerAsync(_client);
+        var id = await _client.CreateToolAsync(owner);
+
+        var response = await _client.SendAs(owner, HttpMethod.Patch, $"/api/tools/{id}", new { comment = "Трещина\u0000" });
+
+        await AssertValidationError(response, "comment");
+        Assert.Equal(JsonValueKind.Null, (await GetTool(owner, id)).GetProperty("comment").ValueKind);
     }
 
     [Fact]

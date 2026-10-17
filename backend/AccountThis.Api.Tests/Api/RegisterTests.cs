@@ -184,6 +184,52 @@ public class RegisterTests(ApiFactory factory)
         Assert.True(errors.TryGetProperty("companyName", out _), errors.ToString());
     }
 
+    // Роль — строго имя значения (api.yaml, «Значения в запросах»): число и другой регистр — 400.
+    // Несуществующая роль "5" раньше доходила до сервиса и давала 500, а 2 молча становилась Owner
+    [Theory]
+    [InlineData("5")]
+    [InlineData("2")]
+    [InlineData(2)]
+    [InlineData("owner")]
+    public async Task RoleNotExactName_Returns400AndDoesNotRegister(object role)
+    {
+        var phone = TestDb.UniquePhone();
+
+        var response = await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            fullName = "Петров Пётр",
+            phone,
+            password = AuthRequests.Password,
+            role,
+            companyName = "ООО Тест",
+        });
+
+        var errors = await ValidationErrors(response);
+        Assert.True(errors.TryGetProperty("$.role", out _), errors.ToString());
+        Assert.Null(await _db.FindUserAsync(phone));
+    }
+
+    // PostgreSQL не хранит символ U+0000: такая строка — 400 на валидации, а не 500 на INSERT
+    [Fact]
+    public async Task NullCharacterInFullNameAndCompanyName_Returns400AndDoesNotRegister()
+    {
+        var phone = TestDb.UniquePhone();
+
+        var response = await _client.PostAsJsonAsync("/api/auth/register", new
+        {
+            fullName = "Петров\u0000Пётр",
+            phone,
+            password = AuthRequests.Password,
+            role = "Owner",
+            companyName = "ООО\u0000Тест",
+        });
+
+        var errors = await ValidationErrors(response);
+        Assert.True(errors.TryGetProperty("fullName", out _), errors.ToString());
+        Assert.True(errors.TryGetProperty("companyName", out _), errors.ToString());
+        Assert.Null(await _db.FindUserAsync(phone));
+    }
+
     private static async Task<JsonElement> ValidationErrors(HttpResponseMessage response)
     {
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
