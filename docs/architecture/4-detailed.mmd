@@ -44,9 +44,13 @@ flowchart LR
             E_sync["POST /api/sync · Sync<br/>Issuer · 200 400"]
             E_logs["GET /api/logs · GetLogs<br/>Issuer, Owner · 200 400"]
         end
+        subgraph NotificationsCtl["NotificationsController · только своя компания"]
+            E_notes["GET /api/notifications · GetNotifications<br/>Owner · 200"]
+            E_read["POST /api/notifications/{id}/read · MarkNotificationRead<br/>Owner · 200 400 404"]
+        end
     end
 
-    Valid --> AuthCtl & CompaniesCtl & UsersCtl & ToolsCtl & SyncCtl
+    Valid --> AuthCtl & CompaniesCtl & UsersCtl & ToolsCtl & SyncCtl & NotificationsCtl
 
     subgraph Services["Services · метод · что вызывает внутри"]
         subgraph AuthSvc["AuthService"]
@@ -74,6 +78,10 @@ flowchart LR
             S_sync["SyncAsync<br/>TryParse → 2 подписи · время · сотрудник · инструмент · повтор<br/>→ флаг → INSERT"]
             S_logs["GetLogsAsync"]
         end
+        subgraph NotificationsSvc["NotificationsService"]
+            S_notes["GetAsync<br/>последние 100 · имя из users"]
+            S_read["MarkReadAsync"]
+        end
     end
 
     E_reg --> S_reg
@@ -91,6 +99,8 @@ flowchart LR
     E_tdel --> S_tdel
     E_sync --> S_sync
     E_logs --> S_logs
+    E_notes --> S_notes
+    E_read --> S_read
 
     subgraph DB["PostgreSQL · Npgsql"]
         companies[("companies<br/>id UUID · name")]
@@ -99,6 +109,8 @@ flowchart LR
         logs[("rental_logs · неизменяемый<br/>company_id · worker_id · tool_id · issuer_id<br/>(составные FK: всё из одной компании)<br/>validation_flag · signed_payload")]
         v_cur[("tool_current_holders<br/>последняя VALID по tool_id")]
         v_tools[("tools_with_holders<br/>Tool + текущий держатель")]
+        outbox[("outbox_events<br/>событие в транзакции изменения<br/>→ OutboxDispatcher → RabbitMQ")]
+        notes[("notifications<br/>пишет AccountThis.Worker")]
     end
 
     S_reg -->|"INSERT"| users
@@ -120,6 +132,9 @@ flowchart LR
     S_sync -->|"SELECT toolId своей компании, UPDATE condition"| tools
     S_sync -->|"SELECT подпись, INSERT с company_id"| logs
     S_logs -->|"SELECT своей компании"| logs
+    S_notes -->|"SELECT своей компании"| notes
+    S_read -->|"UPDATE read_at"| notes
+    S_reg & S_login & S_fire & S_approve & S_tnew & S_tpatch & S_tdel & S_sync -->|"INSERT события"| outbox
 
     logs -.-> v_cur -.-> v_tools
     tools -.-> v_tools
@@ -132,6 +147,6 @@ flowchart LR
 
     class Client actor
     class AuthN,AuthZ,Valid mw
-    class E_reg,E_login,E_key,E_cert,E_companies,E_users,E_fire,E_approve,E_tools,E_tnew,E_tget,E_tpatch,E_tdel,E_sync,E_logs code
-    class S_reg,S_login,S_key,S_cert,S_companies,S_users,S_fire,S_approve,S_tools,S_tnew,S_tget,S_tpatch,S_tdel,S_sync,S_logs code
-    class companies,users,tools,logs,v_cur,v_tools db
+    class E_reg,E_login,E_key,E_cert,E_companies,E_users,E_fire,E_approve,E_tools,E_tnew,E_tget,E_tpatch,E_tdel,E_sync,E_logs,E_notes,E_read code
+    class S_reg,S_login,S_key,S_cert,S_companies,S_users,S_fire,S_approve,S_tools,S_tnew,S_tget,S_tpatch,S_tdel,S_sync,S_logs,S_notes,S_read code
+    class companies,users,tools,logs,v_cur,v_tools,outbox,notes db

@@ -9,6 +9,13 @@ rem 5000 - backend из IDE / dotnet run; 5173-5175 - Vite dev-сервер (е�
 rem Останавливаются только node / dotnet / AccountThis.Api на этих портах - другие программы не трогаются.
 set "STOPPED="
 for %%P in (5000 5173 5174 5175) do call :stop_port %%P
+rem Worker портов не слушает - ищется по имени процесса
+tasklist /FI "IMAGENAME eq AccountThis.Worker.exe" /NH 2>nul | findstr /i "AccountThis.Worker.exe" > nul
+if not errorlevel 1 (
+    taskkill /IM AccountThis.Worker.exe /T /F > nul 2>&1
+    echo   Остановлен AccountThis.Worker.exe
+    set "STOPPED=1"
+)
 if not defined STOPPED echo   Локальных процессов проекта не найдено.
 
 echo.

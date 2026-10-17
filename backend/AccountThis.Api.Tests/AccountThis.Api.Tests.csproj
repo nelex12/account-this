@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AccountThis.Api\AccountThis.Api.csproj" />
+    <ProjectReference Include="..\AccountThis.Worker\AccountThis.Worker.csproj" />
   </ItemGroup>
 
 </Project>

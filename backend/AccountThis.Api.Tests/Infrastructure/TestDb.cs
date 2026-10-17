@@ -236,6 +236,32 @@ public sealed class TestDb(string connectionString)
         return (long)(await cmd.ExecuteScalarAsync())!;
     }
 
+    // ---------- outbox_events ----------
+
+    // Событие в outbox в обход сервисов и без NOTIFY: как оставшееся после сбоя
+    public async Task InsertOutboxEventAsync(Guid eventId, string type, Guid companyId, Guid actorId, string data)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "INSERT INTO outbox_events (event_id, type, company_id, actor_id, occurred_at, data) " +
+            "VALUES (@eventId, @type, @companyId, @actorId, 1790000000, @data::jsonb)",
+            conn);
+        cmd.Parameters.AddWithValue("eventId", eventId);
+        cmd.Parameters.AddWithValue("type", type);
+        cmd.Parameters.AddWithValue("companyId", companyId);
+        cmd.Parameters.AddWithValue("actorId", actorId);
+        cmd.Parameters.AddWithValue("data", data);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<long> CountOutboxEventsAsync(Guid eventId)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand("SELECT count(*) FROM outbox_events WHERE event_id = @id", conn);
+        cmd.Parameters.AddWithValue("id", eventId);
+        return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
     private async Task<NpgsqlConnection> OpenAsync()
     {
         var conn = new NpgsqlConnection(connectionString);

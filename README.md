@@ -19,7 +19,7 @@
 Все настройки и секреты лежат в одном файле — `.env` в корне репозитория (в git не попадает):
 
 - **Docker** (`docker compose`, все `.bat`-скрипты) читает `.env` сам и передаёт переменные в контейнеры.
-- **Backend из IDE** (вариант Б) в режиме Development находит `.env` в корне репозитория и читает его сам.
+- **Backend и Worker из IDE** (вариант Б) в режиме Development находят `.env` в корне репозитория и читают его сами.
   Переменные окружения, заданные явно, важнее значений из `.env`.
 
 Строку подключения к базе backend собирает из `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
@@ -33,7 +33,7 @@
 
 Для работы над UI: изменения в React-коде видны в браузере сразу, без пересборки Docker.
 
-1. Запустите `dev-frontend.bat`: он поднимет Postgres и Backend в Docker и запустит локальный Vite-сервер.
+1. Запустите `dev-frontend.bat`: он поднимет Postgres, RabbitMQ, Backend и Worker в Docker и запустит локальный Vite-сервер.
 2. Откройте http://localhost:5173
 
 Запросы к `/api/*` Vite проксирует на backend (http://localhost:5000).
@@ -44,7 +44,9 @@
    Веб-интерфейс RabbitMQ: http://localhost:15672 (логин и пароль — `RABBITMQ_USER` / `RABBITMQ_PASSWORD`).
 2. Откройте решение `backend/AccountThis.Api/AccountThis.Api.slnx` в Visual Studio 2022 (17.13+) или Rider
    (либо `dotnet run --project backend/AccountThis.Api`).
-3. Запустите проект профилем `AccountThis.Api`. Swagger UI откроется по адресу http://localhost:5000/swagger
+3. Запустите два проекта: `AccountThis.Api` и `AccountThis.Worker` (Visual Studio: «Настроить запускаемые проекты» →
+   «Несколько запускаемых проектов»). Swagger UI откроется по адресу http://localhost:5000/swagger.
+   Без Worker API работает, но журнал аудита и уведомления не пополняются: события ждут в очередях RabbitMQ.
 
 Backend из IDE слушает тот же порт 5000, что и backend в Docker, поэтому одновременно их не запускайте
 (`start-db.bat` поднимает только базу и брокер). Чтобы работать с фронтендом поверх backend из IDE,
@@ -60,8 +62,9 @@ Backend из IDE слушает тот же порт 5000, что и backend в 
 ### Остановка и сброс
 
 - `stop-all.bat` — остановить всё, что относится к проекту: контейнеры Docker (`docker compose down`),
-  Vite dev-сервер (порты 5173–5175) и backend, запущенный из IDE или `dotnet run` (порт 5000).
-  Завершаются только процессы `node` / `dotnet` / `AccountThis.Api` на этих портах, другие программы не трогаются.
+  Vite dev-сервер (порты 5173–5175), backend, запущенный из IDE или `dotnet run` (порт 5000), и `AccountThis.Worker`.
+  Завершаются только процессы `node` / `dotnet` / `AccountThis.Api` на этих портах и процесс `AccountThis.Worker`,
+  другие программы не трогаются.
 - `reset-db.bat` (или `docker compose down -v`) — остановить контейнеры и **удалить данные базы**.
   Следующий запуск создаст базу заново. После изменения схемы сбрасывать базу не нужно (см. «Миграции»).
 
@@ -71,7 +74,7 @@ Backend из IDE слушает тот же порт 5000, что и backend в 
 по порядку те, что ещё не применены (список применённых — в таблице `schema_migrations`), каждый в своей транзакции.
 Данные при этом сохраняются.
 
-- Изменить схему: добавить файл со следующим номером, например `0002_add_tool_serial.sql`. Уже применённые файлы
+- Изменить схему: добавить файл со следующим номером, например `0003_add_tool_serial.sql`. Уже применённые файлы
   не редактировать — у тех, кто их применил, изменение не появится.
 - База, созданная до появления миграций (старым `init.sql`), не запустится с понятной ошибкой:
   её нужно один раз пересоздать через `reset-db.bat`.
@@ -82,11 +85,13 @@ Backend из IDE слушает тот же порт 5000, что и backend в 
   - `api.yaml` — спецификация API (OpenAPI); подробная логика — в документе
     «Описание проекта подробно, используемое в разработке.docx» рядом.
 - `backend/AccountThis.Api/Migrations/` — схема базы данных (миграции).
-- `docs/events.md` — события, которые backend публикует в RabbitMQ (журнал аудита).
+- `backend/AccountThis.Worker/` — отдельный процесс-потребитель событий RabbitMQ: журнал аудита и уведомления Owner.
+- `backend/AccountThis.Shared/` — общее для API и Worker: контракт событий, топология RabbitMQ, чтение `.env`.
+- `docs/events.md` — события RabbitMQ: outbox, очереди, потребители.
 - `docs/architecture/` — схемы архитектуры (C4).
 - `frontend/` — UI на React, Vite и TypeScript; там же `nginx.conf` и `Dockerfile` для продакшен-сборки
   (Nginx раздаёт собранный фронтенд и проксирует `/api/` на backend).
-- `docker-compose.yml` — описание контейнеров: `postgres`, `rabbitmq`, `backend`, `nginx`.
+- `docker-compose.yml` — описание контейнеров: `postgres`, `rabbitmq`, `backend`, `worker`, `nginx`.
 - `env.example` — шаблон файла `.env`.
 - `*.bat` — скрипты быстрой автоматизации для Windows.
 

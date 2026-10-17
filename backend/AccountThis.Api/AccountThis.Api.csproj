@@ -11,8 +11,11 @@
 		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.31" />
 		<PackageReference Include="Npgsql" Version="8.0.3" />
 		<PackageReference Include="NSec.Cryptography" Version="25.4.0" />
-		<PackageReference Include="RabbitMQ.Client" Version="7.1.2" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\AccountThis.Shared\AccountThis.Shared.csproj" />
 	</ItemGroup>
 
 	<!-- Миграции схемы БД встроены в сборку: одинаково работают из IDE, в Docker и в тестах (Migrations/DatabaseMigrator.cs) -->

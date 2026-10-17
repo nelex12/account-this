@@ -1,6 +1,7 @@
 using AccountThis.Api.Events;
 using AccountThis.Api.Models;
 using AccountThis.Api.Security;
+using AccountThis.Shared.Events;
 using Microsoft.AspNetCore.WebUtilities;
 using Npgsql;
 using System.Security.Cryptography;
@@ -77,7 +78,7 @@ public class AuthService(
     IPasswordHasher passwordHasher,
     IJwtTokenService jwtTokenService,
     ISignatureService signatureService,
-    IEventPublisher eventPublisher,
+    IEventOutbox eventOutbox,
     TimeProvider timeProvider) : IAuthService
 {
     public static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
@@ -106,12 +107,15 @@ public class AuthService(
         {
             if (request.Role == UserRole.Worker || request.Role == UserRole.Issuer)
             {
+                await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
+
                 await using var cmdAddWorkerOrIssuer = new NpgsqlCommand(
                     "INSERT INTO " +
                     "users (company_id, full_name, phone, password_hash, role) " +
                     "VALUES (@companyId, @fullName, @phone, @hash, @role::user_role) " +
                     "RETURNING id",
-                    conn);
+                    conn,
+                    transaction);
                 cmdAddWorkerOrIssuer.Parameters.AddWithValue("companyId", request.CompanyId!.Value);
                 cmdAddWorkerOrIssuer.Parameters.AddWithValue("fullName", request.FullName);
                 cmdAddWorkerOrIssuer.Parameters.AddWithValue("phone", normalizedPhone);
@@ -119,7 +123,8 @@ public class AuthService(
                 cmdAddWorkerOrIssuer.Parameters.AddWithValue("role", request.Role!.Value.ToString());
                 var userId = (Guid)(await cmdAddWorkerOrIssuer.ExecuteScalarAsync(cancellationToken))!;
 
-                PublishRegistered(request.CompanyId.Value, userId, request.Role.Value);
+                await AddRegisteredEventAsync(conn, transaction, request.CompanyId.Value, userId, request.Role.Value, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
                 return RegisterStatus.Created;
             }
             else if (request.Role == UserRole.Owner)
@@ -155,9 +160,8 @@ public class AuthService(
 
                 var ownerId = (Guid)(await cmdAddOwner.ExecuteScalarAsync(cancellationToken))!;
 
+                await AddRegisteredEventAsync(conn, transaction, companyId, ownerId, UserRole.Owner, cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
-
-                PublishRegistered(companyId, ownerId, UserRole.Owner);
                 return RegisterStatus.Created;
 
             }
@@ -173,8 +177,9 @@ public class AuthService(
         throw new ArgumentOutOfRangeException(nameof(request), $"Неизвестная роль: {request.Role}");
     }
 
-    private void PublishRegistered(Guid companyId, Guid userId, UserRole role) =>
-        eventPublisher.Publish(EventTypes.UserRegistered, companyId, userId, new { userId, role });
+    private Task AddRegisteredEventAsync(
+        NpgsqlConnection conn, NpgsqlTransaction transaction, Guid companyId, Guid userId, UserRole role, CancellationToken cancellationToken) =>
+        eventOutbox.AddAsync(conn, transaction, EventTypes.UserRegistered, companyId, userId, new { userId, role }, cancellationToken);
 
     public async Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
     {
@@ -225,10 +230,12 @@ public class AuthService(
         // Пока reader открыт, другую команду на этом соединении выполнить нельзя
         await userReader.CloseAsync();
 
-        // Вход начинает новую сессию: новый family_id
-        var refreshToken = await InsertRefreshTokenAsync(conn, null, userId, Guid.NewGuid(), cancellationToken);
+        // Вход начинает новую сессию: новый family_id. Токен и событие входа — в одной транзакции
+        await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
+        var refreshToken = await InsertRefreshTokenAsync(conn, transaction, userId, Guid.NewGuid(), cancellationToken);
+        await eventOutbox.AddAsync(conn, transaction, EventTypes.AuthLoggedIn, companyId, userId, new { }, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
-        eventPublisher.Publish(EventTypes.AuthLoggedIn, companyId, userId, new { });
         return new LoginResult(LoginStatus.Success, jwtToken, refreshToken);
     }
 
@@ -283,15 +290,15 @@ public class AuthService(
         if (isRevoked || !isActive)
         {
             var revoked = await RevokeFamilyAsync(conn, transaction, familyId, now, cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
 
             // Погасился хоть один токен — сессия была жива, а погашенным токеном воспользовались повторно (кража).
             // Ничего не погасилось — сессия уже была завершена (выход, увольнение), это не кража
             if (isRevoked && revoked > 0)
             {
-                eventPublisher.Publish(EventTypes.AuthSessionReuseDetected, companyId, userId, new { });
+                await eventOutbox.AddAsync(conn, transaction, EventTypes.AuthSessionReuseDetected, companyId, userId, new { }, cancellationToken);
             }
 
+            await transaction.CommitAsync(cancellationToken);
             return new RefreshResult(RefreshStatus.Failed);
         }
 
@@ -336,7 +343,7 @@ public class AuthService(
 
     // Новый refresh token сессии familyId. В БД — только SHA-256 токена, клиенту — сам токен (base64url)
     private async Task<string> InsertRefreshTokenAsync(
-        NpgsqlConnection conn, NpgsqlTransaction? transaction, Guid userId, Guid familyId, CancellationToken cancellationToken)
+        NpgsqlConnection conn, NpgsqlTransaction transaction, Guid userId, Guid familyId, CancellationToken cancellationToken)
     {
         byte[] refreshTokenBytes = RandomNumberGenerator.GetBytes(32);
         var now = timeProvider.GetUtcNow();

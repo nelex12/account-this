@@ -1,8 +1,8 @@
-using AccountThis.Api.Configuration;
 using AccountThis.Api.Events;
 using AccountThis.Api.Migrations;
 using AccountThis.Api.Security;
 using AccountThis.Api.Services;
+using AccountThis.Shared.Configuration;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 using Microsoft.IdentityModel.Tokens;
@@ -66,11 +66,10 @@ builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 builder.Services.AddSingleton<ISignatureService, SignatureService>();
 
-// События аудита (docs/events.md): издатель — фоновый отправитель в RabbitMQ, потребитель очереди audit → audit_events
-builder.Services.AddSingleton<RabbitMqEventPublisher>();
-builder.Services.AddSingleton<IEventPublisher>(sp => sp.GetRequiredService<RabbitMqEventPublisher>());
-builder.Services.AddHostedService(sp => sp.GetRequiredService<RabbitMqEventPublisher>());
-builder.Services.AddHostedService<AuditConsumer>();
+// События (docs/events.md): сервисы пишут их в outbox_events в своей транзакции, фоновый диспетчер отправляет в RabbitMQ.
+// Потребители событий — отдельный процесс AccountThis.Worker
+builder.Services.AddSingleton<IEventOutbox, EventOutbox>();
+builder.Services.AddHostedService<OutboxDispatcher>();
 
 // Бизнес-логика контроллеров; к БД обращаются через NpgsqlDataSource
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -78,6 +77,7 @@ builder.Services.AddScoped<ICompaniesService, CompaniesService>();
 builder.Services.AddScoped<IUsersService, UsersService>();
 builder.Services.AddScoped<IToolsService, ToolsService>();
 builder.Services.AddScoped<ISyncService, SyncService>();
+builder.Services.AddScoped<INotificationsService, NotificationsService>();
 
 var app = builder.Build();
 

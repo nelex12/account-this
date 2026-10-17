@@ -43,4 +43,13 @@ namespace AccountThis.Api.Models
         UNKNOWN_TOOL,
         DUPLICATE
     }
+
+    // Совпадает с notification_type в БД (Migrations/0002_outbox_notifications.sql)
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public enum NotificationType
+    {
+        EmployeeAwaitingApproval,
+        SessionReuseDetected,
+        SuspiciousSync
+    }
 }

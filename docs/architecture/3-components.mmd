@@ -22,6 +22,7 @@ flowchart LR
         UsersC["UsersController<br/>/api/users"]
         ToolsC["ToolsController<br/>/api/tools"]
         SyncC["SyncController<br/>/api/sync · /api/logs"]
+        NotificationsC["NotificationsController<br/>/api/notifications"]
     end
 
     subgraph Services["Services"]
@@ -30,7 +31,15 @@ flowchart LR
         UsersS["UsersService"]
         ToolsS["ToolsService"]
         SyncS["SyncService"]
+        NotificationsS["NotificationsService"]
     end
+
+    subgraph Events["Events"]
+        Outbox["EventOutbox<br/>INSERT в транзакции сервиса"]
+        Dispatcher["OutboxDispatcher<br/>фоновая отправка"]
+    end
+
+    Rabbit[("RabbitMQ<br/>→ AccountThis.Worker")]
 
     subgraph Security["Security"]
         Hasher["PasswordHasher"]
@@ -45,16 +54,19 @@ flowchart LR
         tools[("tools")]
         logs[("rental_logs")]
         holders[("tools_with_holders")]
+        outbox[("outbox_events")]
+        notifications[("notifications")]
     end
 
     Client --> AuthN
-    Valid --> AuthC & CompaniesC & UsersC & ToolsC & SyncC
+    Valid --> AuthC & CompaniesC & UsersC & ToolsC & SyncC & NotificationsC
 
     AuthC --> AuthS
     CompaniesC --> CompaniesS
     UsersC --> UsersS
     ToolsC --> ToolsS
     SyncC --> SyncS
+    NotificationsC --> NotificationsS
 
     AuthS --> Hasher & Jwt & Sig
     SyncS --> Qr & Sig
@@ -64,6 +76,11 @@ flowchart LR
     UsersS --> users
     ToolsS --> tools & holders
     SyncS --> logs & tools & users
+    NotificationsS --> notifications & users
+
+    AuthS & UsersS & ToolsS & SyncS --> Outbox
+    Outbox --> outbox
+    outbox --> Dispatcher --> Rabbit
 
     classDef actor fill:#1f4d3a,stroke:#3fb27f,color:#fff
     classDef mw fill:#1e3a5f,stroke:#4a8fd6,color:#fff
@@ -73,6 +90,6 @@ flowchart LR
 
     class Client actor
     class AuthN,AuthZ,Valid mw
-    class AuthC,CompaniesC,UsersC,ToolsC,SyncC,AuthS,CompaniesS,UsersS,ToolsS,SyncS code
-    class Hasher,Jwt,Sig,Qr helper
-    class companies,users,tools,logs,holders db
+    class AuthC,CompaniesC,UsersC,ToolsC,SyncC,NotificationsC,AuthS,CompaniesS,UsersS,ToolsS,SyncS,NotificationsS code
+    class Hasher,Jwt,Sig,Qr,Outbox,Dispatcher helper
+    class companies,users,tools,logs,holders,outbox,notifications,Rabbit db

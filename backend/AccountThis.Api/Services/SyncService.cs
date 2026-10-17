@@ -1,6 +1,7 @@
 using AccountThis.Api.Events;
 using AccountThis.Api.Models;
 using AccountThis.Api.Security;
+using AccountThis.Shared.Events;
 using Npgsql;
 
 namespace AccountThis.Api.Services;
@@ -29,7 +30,7 @@ public interface ISyncService
 public class SyncService(
     NpgsqlDataSource dataSource,
     ISignatureService signatureService,
-    IEventPublisher eventPublisher,
+    IEventOutbox eventOutbox,
     TimeProvider timeProvider) : ISyncService
 {
     // TIME_DRIFT: |timestamp − scannedAt| больше этого значения
@@ -136,14 +137,13 @@ public class SyncService(
             createdFlags[flag.ToString()] = createdFlags.GetValueOrDefault(flag.ToString()) + 1;
         }
 
-        await transaction.CommitAsync(cancellationToken);
-
-        eventPublisher.Publish(EventTypes.RentalSynced, companyId, issuerId, new
+        await eventOutbox.AddAsync(conn, transaction, EventTypes.RentalSynced, companyId, issuerId, new
         {
             total = records.Count,
             created = createdFlags.Values.Sum(),
             flags = createdFlags,
-        });
+        }, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return SyncOutcome.Saved(results);
     }

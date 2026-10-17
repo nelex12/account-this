@@ -1,0 +1,24 @@
+# Образ Worker — потребителей событий RabbitMQ (docs/events.md). Устроен так же, как Dockerfile API
+
+# --- Стадия 1: сборка ---
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+COPY AccountThis.Shared/AccountThis.Shared.csproj AccountThis.Shared/
+COPY AccountThis.Worker/AccountThis.Worker.csproj AccountThis.Worker/
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet restore AccountThis.Worker/AccountThis.Worker.csproj
+
+COPY AccountThis.Shared/ AccountThis.Shared/
+COPY AccountThis.Worker/ AccountThis.Worker/
+WORKDIR /src/AccountThis.Worker
+RUN --mount=type=cache,id=nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet publish -c Release -o /app/publish --no-restore
+
+# --- Стадия 2: рантайм ---
+# Worker не принимает HTTP, поэтому достаточно образа runtime без ASP.NET Core
+FROM mcr.microsoft.com/dotnet/runtime:8.0 AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+
+ENTRYPOINT ["dotnet", "AccountThis.Worker.dll"]

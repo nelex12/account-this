@@ -1,4 +1,6 @@
 <Solution>
   <Project Path="AccountThis.Api.csproj" />
+  <Project Path="../AccountThis.Worker/AccountThis.Worker.csproj" />
+  <Project Path="../AccountThis.Shared/AccountThis.Shared.csproj" />
   <Project Path="../AccountThis.Api.Tests/AccountThis.Api.Tests.csproj" />
 </Solution>

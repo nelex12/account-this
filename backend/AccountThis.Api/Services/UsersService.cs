@@ -1,5 +1,6 @@
 using AccountThis.Api.Events;
 using AccountThis.Api.Models;
+using AccountThis.Shared.Events;
 using Npgsql;
 
 namespace AccountThis.Api.Services;
@@ -32,7 +33,7 @@ public interface IUsersService
     Task<bool> ApproveAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken);
 }
 
-public class UsersService(NpgsqlDataSource dataSource, IEventPublisher eventPublisher, TimeProvider timeProvider) : IUsersService
+public class UsersService(NpgsqlDataSource dataSource, IEventOutbox eventOutbox, TimeProvider timeProvider) : IUsersService
 {
     private const string UserColumns = "id, full_name, phone, role::text, is_approved, is_active";
 
@@ -126,13 +127,13 @@ public class UsersService(NpgsqlDataSource dataSource, IEventPublisher eventPubl
             revokedSessions = (int)(await cmdRevoke.ExecuteScalarAsync(cancellationToken))!;
         }
 
-        await transaction.CommitAsync(cancellationToken);
-
         if (wasActive)
         {
-            eventPublisher.Publish(EventTypes.UserDeactivated, companyId, currentUserId, new { userId = id, revokedSessions });
+            await eventOutbox.AddAsync(conn, transaction, EventTypes.UserDeactivated, companyId, currentUserId,
+                new { userId = id, revokedSessions }, cancellationToken);
         }
 
+        await transaction.CommitAsync(cancellationToken);
         return DeactivateUserStatus.Deactivated;
     }
 
@@ -141,11 +142,13 @@ public class UsersService(NpgsqlDataSource dataSource, IEventPublisher eventPubl
         // company_id в WHERE — защита от BOLA: пользователь чужой компании не найдётся (0 строк — 404).
         // prev — значение до изменения (строка заблокирована FOR UPDATE): событие только если подтверждения ещё не было
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand(
             "WITH prev AS (SELECT is_approved FROM users WHERE id = @id AND company_id = @companyId FOR UPDATE) " +
             "UPDATE users u SET is_approved = TRUE FROM prev WHERE u.id = @id " +
             "RETURNING prev.is_approved",
-            conn);
+            conn,
+            transaction);
         cmd.Parameters.AddWithValue("id", id);
         cmd.Parameters.AddWithValue("companyId", companyId);
 
@@ -157,9 +160,10 @@ public class UsersService(NpgsqlDataSource dataSource, IEventPublisher eventPubl
 
         if (!(bool)result)
         {
-            eventPublisher.Publish(EventTypes.UserApproved, companyId, currentUserId, new { userId = id });
+            await eventOutbox.AddAsync(conn, transaction, EventTypes.UserApproved, companyId, currentUserId, new { userId = id }, cancellationToken);
         }
 
+        await transaction.CommitAsync(cancellationToken);
         return true;
     }
 

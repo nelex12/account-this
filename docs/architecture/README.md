@@ -6,8 +6,8 @@
 | Уровень | Что показывает | Файлы |
 |---|---|---|
 | 1. Контекст | Кто пользуется системой и как: роли, компании, оффлайн-обмен QR, наклейки на инструментах | [1-context.mmd](1-context.mmd) · [4K](images/1-context.png) |
-| 2. Контейнеры | Из чего состоит развёртывание: браузер, nginx, backend, PostgreSQL, порты, `.env` | [2-containers.mmd](2-containers.mmd) · [4K](images/2-containers.png) |
-| 3. Компоненты backend | Путь запроса: middleware → контроллер → сервис → Security → таблицы | [3-components.mmd](3-components.mmd) · [4K](images/3-components.png) · [8K](images/3-components-8k.png) |
+| 2. Контейнеры | Из чего состоит развёртывание: браузер, nginx, backend, worker, PostgreSQL, RabbitMQ, порты, `.env` | [2-containers.mmd](2-containers.mmd) · [4K](images/2-containers.png) |
+| 3. Компоненты backend | Путь запроса: middleware → контроллер → сервис → Security → таблицы; события через outbox в RabbitMQ | [3-components.mmd](3-components.mmd) · [4K](images/3-components.png) · [8K](images/3-components-8k.png) |
 | 4. Подробная | Каждый эндпоинт (роль, коды ответа) → метод сервиса (что вызывает) → SQL-операция над таблицей, связи таблиц и view, привязка к компании | [4-detailed.mmd](4-detailed.mmd) · [4K](images/4-detailed.png) · [8K](images/4-detailed-8k.png) |
 
 ## Обозначения
@@ -19,10 +19,8 @@
 ## Схемы и код
 
 Схемы описывают, **как система должна работать** по `api.yaml`, миграциям БД (`backend/AccountThis.Api/Migrations`) и документу
-«Описание проекта подробно…». Сейчас в коде:
-
-- сервисы и Security — заглушки (`NotImplementedException`), контроллеры уже вызывают сервисы;
-- middleware проверки JWT не подключено: в `Program.cs` нет `AddAuthentication` / `UseAuthentication` / `UseAuthorization`.
+«Описание проекта подробно…»; backend реализован полностью. События и их потребители (Worker) описаны в
+[docs/events.md](../events.md).
 
 Строка QR сотрудника разбирается дважды: фронтендом завхоза при оффлайн-проверке и сервером в `/api/sync`
 (`QrPayloadParser`). Серверу нужны поля из QR для записи в `rental_logs`, а флаги проверки выставляет только он —
@@ -36,7 +34,7 @@
 ссылку на другую компанию даже при ошибке в коде.
 
 id пользователей, компаний и инструментов — UUID. Они не перебираются и не раскрывают масштаб, но защитой доступа не являются:
-её дают проверки компании. id записей журнала — обычные числа: на вход они нигде не принимаются.
+её дают проверки компании. id записей журнала и уведомлений — обычные числа: записи всегда выбираются по компании.
 Списка компаний нет: Owner берёт id своей компании в `GET /api/companies/my` и сообщает его сотрудникам и завхозам.
 
 ## Как изменить схему

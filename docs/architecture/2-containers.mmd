@@ -14,9 +14,10 @@ flowchart LR
 
     subgraph Compose["Docker Compose"]
         Nginx["nginx · :80<br/>статика<br/>прокси /api/"]
-        Backend["AccountThis.Api<br/>ASP.NET Core 8<br/>:8080, снаружи :5000"]
+        Backend["AccountThis.Api<br/>ASP.NET Core 8<br/>:8080, снаружи :5000<br/>OutboxDispatcher"]
+        Worker["AccountThis.Worker<br/>.NET 8 Worker Service<br/>потребители audit, notifications"]
         Postgres[("PostgreSQL 16<br/>:5432<br/>volume postgres_data")]
-        Rabbit[("RabbitMQ 4<br/>:5672 AMQP · :15672 UI<br/>exchange accountthis.events<br/>очередь audit")]
+        Rabbit[("RabbitMQ 4<br/>:5672 AMQP · :15672 UI<br/>exchange accountthis.events<br/>очереди audit, notifications,<br/>events.dead")]
     end
 
     Env[/".env<br/>POSTGRES_* · RABBITMQ_*<br/>ключи сервера и JWT"/]
@@ -24,11 +25,13 @@ flowchart LR
 
     SPA -->|"HTTPS<br/>/api/* с JWT,<br/>/api/auth/* с cookie refresh_token"| Nginx
     Nginx -->|"proxy_pass"| Backend
-    Backend -->|"Npgsql<br/>SQL"| Postgres
-    Backend -->|"публикация событий<br/>после COMMIT"| Rabbit
-    Rabbit -.->|"потребитель audit<br/>→ audit_events"| Backend
+    Backend -->|"Npgsql<br/>SQL, событие в outbox_events<br/>в той же транзакции"| Postgres
+    Backend -->|"outbox → событие<br/>publisher confirms"| Rabbit
+    Rabbit -->|"очереди audit,<br/>notifications"| Worker
+    Worker -->|"audit_events,<br/>notifications"| Postgres
 
     Env -.-> Backend
+    Env -.-> Worker
     Env -.-> Postgres
     Env -.-> Rabbit
     Init -.-> Backend
@@ -40,5 +43,5 @@ flowchart LR
 
     class SPA front
     class Nginx,Env,Init infra
-    class Backend code
+    class Backend,Worker code
     class Postgres,Rabbit,Local db

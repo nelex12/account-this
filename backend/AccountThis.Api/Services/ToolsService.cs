@@ -1,5 +1,6 @@
 using AccountThis.Api.Events;
 using AccountThis.Api.Models;
+using AccountThis.Shared.Events;
 using Npgsql;
 
 namespace AccountThis.Api.Services;
@@ -25,7 +26,7 @@ public interface IToolsService
     Task<bool> DeactivateAsync(Guid companyId, Guid actorId, Guid id, CancellationToken cancellationToken);
 }
 
-public class ToolsService(NpgsqlDataSource dataSource, IEventPublisher eventPublisher, TimeProvider timeProvider) : IToolsService
+public class ToolsService(NpgsqlDataSource dataSource, IEventOutbox eventOutbox, TimeProvider timeProvider) : IToolsService
 {
     private const string ToolColumns = "id, name, condition::text, comment, is_active, holder_id, holder_name, held_since";
 
@@ -51,10 +52,12 @@ public class ToolsService(NpgsqlDataSource dataSource, IEventPublisher eventPubl
     {
         // Состояние, время изменения состояния и is_active — значения по умолчанию из схемы; держателя у нового нет
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand(
             "INSERT INTO tools (company_id, name) VALUES (@companyId, @name) " +
             "RETURNING id, name, condition::text, comment, is_active",
-            conn);
+            conn,
+            transaction);
         cmd.Parameters.AddWithValue("companyId", companyId);
         cmd.Parameters.AddWithValue("name", request.Name);
 
@@ -72,7 +75,9 @@ public class ToolsService(NpgsqlDataSource dataSource, IEventPublisher eventPubl
             };
         }
 
-        eventPublisher.Publish(EventTypes.ToolCreated, companyId, actorId, new { toolId = tool.Id, name = tool.Name });
+        await eventOutbox.AddAsync(conn, transaction, EventTypes.ToolCreated, companyId, actorId,
+            new { toolId = tool.Id, name = tool.Name }, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return tool;
     }
 
@@ -96,7 +101,8 @@ public class ToolsService(NpgsqlDataSource dataSource, IEventPublisher eventPubl
         // Не передано ничего — только проверка, что инструмент есть (200 / 404)
         var assignments = new List<string>();
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var cmd = new NpgsqlCommand { Connection = conn };
+        await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand { Connection = conn, Transaction = transaction };
 
         if (request.Condition is not null)
         {
@@ -132,9 +138,10 @@ public class ToolsService(NpgsqlDataSource dataSource, IEventPublisher eventPubl
                 data["comment"] = request.Comment;
             }
 
-            eventPublisher.Publish(EventTypes.ToolUpdated, companyId, actorId, data);
+            await eventOutbox.AddAsync(conn, transaction, EventTypes.ToolUpdated, companyId, actorId, data, cancellationToken);
         }
 
+        await transaction.CommitAsync(cancellationToken);
         return found;
     }
 
@@ -142,11 +149,13 @@ public class ToolsService(NpgsqlDataSource dataSource, IEventPublisher eventPubl
     {
         // prev — значение до изменения (строка заблокирована): событие только при первом списании
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand(
             "WITH prev AS (SELECT is_active FROM tools WHERE id = @id AND company_id = @companyId FOR UPDATE) " +
             "UPDATE tools t SET is_active = FALSE FROM prev WHERE t.id = @id " +
             "RETURNING prev.is_active",
-            conn);
+            conn,
+            transaction);
         cmd.Parameters.AddWithValue("id", id);
         cmd.Parameters.AddWithValue("companyId", companyId);
 
@@ -158,9 +167,10 @@ public class ToolsService(NpgsqlDataSource dataSource, IEventPublisher eventPubl
 
         if ((bool)result)
         {
-            eventPublisher.Publish(EventTypes.ToolWrittenOff, companyId, actorId, new { toolId = id });
+            await eventOutbox.AddAsync(conn, transaction, EventTypes.ToolWrittenOff, companyId, actorId, new { toolId = id }, cancellationToken);
         }
 
+        await transaction.CommitAsync(cancellationToken);
         return true;
     }
 

@@ -1,4 +1,6 @@
-namespace AccountThis.Api.Configuration;
+using Microsoft.Extensions.Configuration;
+
+namespace AccountThis.Shared.Configuration;
 
 // Общий файл секретов .env в корне репозитория — тот же, что читает docker compose.
 // Подключается только при локальном запуске (IDE, dotnet run): в Docker файла внутри контейнера нет,
@@ -41,7 +43,7 @@ public static class DotEnvConfiguration
         configuration.AddInMemoryCollection(values);
     }
 
-    // .env ищется рядом с docker-compose.yml, вверх от каталога проекта (backend/AccountThis.Api → корень репозитория).
+    // .env ищется рядом с docker-compose.yml, вверх от каталога проекта (backend/AccountThis.Api или backend/AccountThis.Worker → корень репозитория).
     // Поиск по docker-compose.yml, а не по самому .env, — чтобы не подхватить посторонний .env выше по дереву.
     private static string? FindDotEnv(string startDirectory)
     {

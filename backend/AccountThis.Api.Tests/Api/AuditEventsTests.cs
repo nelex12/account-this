@@ -7,8 +7,8 @@ using RabbitMQ.Client;
 
 namespace AccountThis.Api.Tests.Api;
 
-// Журнал аудита (docs/events.md): действие через API → событие в RabbitMQ → потребитель audit → строка audit_events.
-// Запись асинхронная, поэтому тесты ждут строку с таймаутом. Событие только при реальном изменении состояния.
+// Журнал аудита (docs/events.md): действие через API → outbox_events в той же транзакции → OutboxDispatcher → RabbitMQ →
+// потребитель audit (Worker) → строка audit_events. Запись асинхронная, поэтому тесты ждут строку с таймаутом. Событие только при реальном изменении состояния.
 // Отсутствие события проверяется «барьером»: после действия без события выполняется действие с событием;
 // очередь одна и обрабатывается по порядку, поэтому к появлению второго события первое тоже было бы записано.
 [Collection("Api")]
@@ -201,6 +201,35 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Empty(await _db.FindAuditEventsAsync(owner.CompanyId, "rental.synced"));
     }
 
+    // ---------- Outbox ----------
+
+    // Отправленное событие удаляется из outbox
+    [Fact]
+    public async Task Outbox_IsEmptiedAfterPublish()
+    {
+        var owner = await factory.CreateOwnerAsync(_client);
+
+        var row = (await _db.WaitForAuditEventsAsync(owner.CompanyId, "user.registered")).Single();
+
+        await WaitUntil(async () => await _db.CountOutboxEventsAsync(row.EventId) == 0, "Событие осталось в outbox_events");
+    }
+
+    // Событие, зафиксированное, но не отправленное (приложение упало, брокер был недоступен), отправляется позже:
+    // строка в outbox без сигнала NOTIFY — диспетчер находит её при периодической проверке
+    [Fact]
+    public async Task Outbox_PendingEventWithoutSignal_IsDeliveredLater()
+    {
+        var eventId = Guid.NewGuid();
+        var companyId = Guid.NewGuid();
+
+        await _db.InsertOutboxEventAsync(eventId, "test.pending", companyId, actorId: Guid.NewGuid(), data: "{\"n\": 1}");
+
+        var row = (await _db.WaitForAuditEventsAsync(companyId, "test.pending", timeoutSeconds: 30)).Single();
+        Assert.Equal(eventId, row.EventId);
+        Assert.Equal(1, row.Data.GetProperty("n").GetInt32());
+        await WaitUntil(async () => await _db.CountOutboxEventsAsync(eventId) == 0, "Событие осталось в outbox_events");
+    }
+
     // ---------- Потребитель ----------
 
     // Повторная доставка того же события (тот же eventId) — одна строка
@@ -231,7 +260,7 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Equal(1, await _db.CountAuditEventsAsync(eventId));
     }
 
-    // Неразбираемое сообщение уходит в очередь отказов audit.dead, а не крутится в audit
+    // Неразбираемое сообщение уходит в очередь отказов events.dead, а не крутится в audit
     [Fact]
     public async Task Consumer_MalformedMessage_GoesToDeadLetterQueue()
     {
@@ -239,22 +268,55 @@ public class AuditEventsTests(ApiFactory factory)
 
         await PublishRawAsync("test.malformed", "{\"not\":\"an event\",\"marker\":\"" + marker + "\"}");
 
+        await WaitForDeadLetterAsync(marker);
+    }
+
+    // Контракт типа проверяет каждый потребитель сам: конверт верный — audit записывает событие,
+    // а notifications без data.userId обработать его не может и отправляет в events.dead
+    [Fact]
+    public async Task NotificationsConsumer_EventWithoutRequiredData_GoesToDeadLetterQueue()
+    {
+        var companyId = Guid.NewGuid();
+        var marker = Guid.NewGuid().ToString();
+
+        await PublishRawAsync("user.registered", JsonSerializer.Serialize(new
+        {
+            eventId = Guid.NewGuid(), type = "user.registered", occurredAt = 1790000000L, companyId, actorId = Guid.NewGuid(),
+            data = new { marker },
+        }));
+
+        await _db.WaitForAuditEventsAsync(companyId, "user.registered");
+        await WaitForDeadLetterAsync(marker);
+    }
+
+    private async Task WaitForDeadLetterAsync(string marker)
+    {
         var deadline = DateTime.UtcNow.AddSeconds(15);
         await using var connection = await factory.RabbitMq.CreateConnectionAsync();
         await using var channel = await connection.CreateChannelAsync();
         while (true)
         {
-            var message = await channel.BasicGetAsync("audit.dead", autoAck: true);
+            var message = await channel.BasicGetAsync("events.dead", autoAck: true);
             if (message is not null && Encoding.UTF8.GetString(message.Body.Span).Contains(marker))
             {
                 return;
             }
 
-            Assert.True(DateTime.UtcNow < deadline, "Сообщение не появилось в audit.dead");
+            Assert.True(DateTime.UtcNow < deadline, "Сообщение не появилось в events.dead");
             if (message is null)
             {
                 await Task.Delay(100);
             }
+        }
+    }
+
+    private static async Task WaitUntil(Func<Task<bool>> condition, string failure)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (!await condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, failure);
+            await Task.Delay(100);
         }
     }
 

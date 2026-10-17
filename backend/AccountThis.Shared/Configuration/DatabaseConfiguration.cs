@@ -1,6 +1,7 @@
+using Microsoft.Extensions.Configuration;
 using Npgsql;
 
-namespace AccountThis.Api.Configuration;
+namespace AccountThis.Shared.Configuration;
 
 // Строка подключения собирается из тех же переменных, с которыми создаётся контейнер postgres (.env),
 // поэтому логин и пароль к базе задаются в одном месте.
