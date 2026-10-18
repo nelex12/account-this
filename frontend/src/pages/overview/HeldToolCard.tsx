@@ -4,10 +4,10 @@ import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardActionArea from '@mui/material/CardActionArea';
 import Typography from '@mui/material/Typography';
-import type { ToolRow } from '../../entities/toolsModel';
 
 export interface HeldToolCardProps {
-  tool: Pick<ToolRow, 'id' | 'name' | 'number'>;
+  /** `number` — inventory number for display; api.yaml Tool has no such field yet. */
+  tool: { id: string; name: string; number: string };
   /** When provided, the whole card is tappable. */
   onClick?: (tool: HeldToolCardProps['tool']) => void;
 }
