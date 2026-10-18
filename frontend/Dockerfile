@@ -1,12 +1,13 @@
 # Этап 1: Сборка React-приложения
-FROM node:20-alpine AS build
+# Node 24 LTS (Node 20 поддерживается только до апреля 2026); Vite 8 требует Node 20.19+ или 22.12+
+FROM node:24-alpine AS build
 WORKDIR /app
 
-# Копируем настройки пакетов и устанавливаем зависимости
+# Копируем настройки пакетов и ставим зависимости строго по package-lock.json
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
-# Копируем весь код и собираем
+# Копируем весь код (без node_modules — см. .dockerignore) и собираем
 COPY . .
 RUN npm run build
 

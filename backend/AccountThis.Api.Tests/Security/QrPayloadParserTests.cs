@@ -75,7 +75,8 @@ public class QrPayloadParserTests
         $"AT1.{Token()}=.{Signature}.{Op()}.{Signature}",
         $"AT1.{Token()}.{Signature}.{Op()}.{Signature[..^2]}+/",
         $"AT1..{Signature}.{Op()}.{Signature}",
-        $"AT1.{Token()}.{Signature}.{Op()}.{Signature}A",
+        // Длина n % 4 == 1 невозможна в base64url (86 + 3 = 89 символов)
+        $"AT1.{Token()}.{Signature}.{Op()}.{Signature}AAA",
         // Длины подписей и ключа
         $"AT1.{Token()}.{Base64UrlEncoder.Encode(new byte[63])}.{Op()}.{Signature}",
         $"AT1.{Token()}.{Signature}.{Op()}.{Base64UrlEncoder.Encode(new byte[65])}",

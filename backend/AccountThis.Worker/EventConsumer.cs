@@ -103,6 +103,13 @@ public abstract class EventConsumer(IConfiguration configuration, ILogger logger
             await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: true);
             return;
         }
+        catch (Exception ex)
+        {
+            // Ошибка в коде обработчика: без ack/nack сообщение осталось бы неподтверждённым и занимало место prefetch
+            logger.LogError(ex, "Очередь {Queue}: событие {EventId} не обработано из-за ошибки", Queue, message.EventId);
+            await RejectAsync(channel, delivery, "не обработано из-за ошибки");
+            return;
+        }
 
         if (!handled)
         {

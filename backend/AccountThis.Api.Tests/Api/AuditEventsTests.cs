@@ -201,6 +201,26 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Empty(await _db.FindAuditEventsAsync(owner.CompanyId, "rental.synced"));
     }
 
+    // Повторная отправка уже сохранённых записей (обрыв связи) ничего не меняет — второго события нет
+    [Fact]
+    public async Task ResendOnlySync_PublishesNothing()
+    {
+        var owner = await factory.CreateOwnerAsync(_client);
+        var issuer = await factory.CreateEmployeeAsync(_client, owner, UserRole.Issuer);
+        var worker = await factory.CreateEmployeeAsync(_client, owner, UserRole.Worker);
+        var toolId = await _client.CreateToolAsync(owner);
+        using var qr = QrBuilder.Forge(worker.Id);
+        var now = QrBuilder.Now;
+        var records = new[] { new { qr = qr.Qr(RentalAction.TAKE, toolId, now - 5), scannedAt = now - 5 } };
+        await _client.SendAs(issuer, HttpMethod.Post, "/api/sync", records);
+
+        var resend = await _client.SendAs(issuer, HttpMethod.Post, "/api/sync", records);
+        Assert.Equal(HttpStatusCode.OK, resend.StatusCode);
+        await Barrier(owner);
+
+        Assert.Single(await _db.FindAuditEventsAsync(owner.CompanyId, "rental.synced"));
+    }
+
     // ---------- Outbox ----------
 
     // Отправленное событие удаляется из outbox

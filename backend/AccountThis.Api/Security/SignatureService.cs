@@ -31,6 +31,11 @@ public class SignatureService : ISignatureService, IDisposable
     public SignatureService(IConfiguration configuration)
     {
         byte[] privateBytes = Base64UrlEncoder.DecodeBytes(configuration["SERVER_SIGNING_KEY"]!);
+        if (privateBytes.Length != 32)
+        {
+            throw new InvalidOperationException(
+                "SERVER_SIGNING_KEY должен быть 32-байтным seed Ed25519 в base64url. Сгенерируйте ключ заново (generate-keys.bat).");
+        }
 
         _key = Key.Import(_alg, privateBytes, KeyBlobFormat.RawPrivateKey);
 

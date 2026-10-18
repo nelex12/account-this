@@ -22,6 +22,8 @@ flowchart LR
         subgraph AuthCtl["AuthController"]
             E_reg["POST /api/auth/register · Register<br/>anonymous · 201 400 409"]
             E_login["POST /api/auth/login · Login<br/>anonymous · 200 400 401 403"]
+            E_refresh["POST /api/auth/refresh · Refresh<br/>cookie refresh_token · 200 401"]
+            E_logout["POST /api/auth/logout · Logout<br/>cookie refresh_token · 204"]
             E_key["GET /api/auth/server-key · GetServerKey<br/>anonymous · 200"]
             E_cert["GET /api/auth/worker-cert · GetWorkerCert<br/>Worker · 200 403"]
         end
@@ -29,6 +31,7 @@ flowchart LR
             E_companies["GET /api/companies/my · GetMyCompany<br/>любая роль · 200 404"]
         end
         subgraph UsersCtl["UsersController · только своя компания"]
+            E_me["GET /api/users/me · GetMe<br/>любая роль · 200 404"]
             E_users["GET /api/users · GetUsers<br/>Owner · 200"]
             E_fire["DELETE /api/users/{id} · DeactivateUser<br/>Owner · 200 400 404 409"]
             E_approve["POST /api/users/{id}/approve · ApproveUser<br/>Owner · 200 400 404"]
@@ -55,7 +58,9 @@ flowchart LR
     subgraph Services["Services · метод · что вызывает внутри"]
         subgraph AuthSvc["AuthService"]
             S_reg["RegisterAsync<br/>Normalize · Hash<br/>Owner создаёт компанию, остальные<br/>указывают её id"]
-            S_login["LoginAsync<br/>Normalize · Verify · CreateAccessToken<br/>(id, роль, компания)"]
+            S_login["LoginAsync<br/>Normalize · Verify · CreateAccessToken<br/>(id, роль, компания) · новая сессия"]
+            S_refresh["RefreshAsync<br/>ротация токена · повтор погашенного<br/>гасит всю сессию"]
+            S_logout["LogoutAsync<br/>гасит сессию токена"]
             S_key["GetServerKey<br/>ServerPublicKey · время сервера"]
             S_cert["IssueWorkerCertificateAsync<br/>GenerateKeyPair · SignWithServerKey"]
         end
@@ -63,8 +68,9 @@ flowchart LR
             S_companies["GetCompanyAsync<br/>id компании из JWT"]
         end
         subgraph UsersSvc["UsersService"]
+            S_me["GetMeAsync<br/>id и компания из JWT"]
             S_users["GetUsersAsync"]
-            S_fire["DeactivateAsync<br/>себя нельзя → 409"]
+            S_fire["DeactivateAsync<br/>себя нельзя → 409<br/>гасит все сессии"]
             S_approve["ApproveAsync"]
         end
         subgraph ToolsSvc["ToolsService"]
@@ -86,9 +92,12 @@ flowchart LR
 
     E_reg --> S_reg
     E_login --> S_login
+    E_refresh --> S_refresh
+    E_logout --> S_logout
     E_key --> S_key
     E_cert --> S_cert
     E_companies --> S_companies
+    E_me --> S_me
     E_users --> S_users
     E_fire --> S_fire
     E_approve --> S_approve
@@ -104,7 +113,8 @@ flowchart LR
 
     subgraph DB["PostgreSQL · Npgsql"]
         companies[("companies<br/>id UUID · name")]
-        users[("users<br/>id UUID · company_id · phone UNIQUE<br/>role · is_approved · is_active")]
+        users[("users<br/>id UUID · company_id · phone UNIQUE<br/>role · is_approved · is_active · deactivated_at")]
+        rtokens[("refresh_tokens<br/>SHA-256 токена · family_id (сессия)<br/>expires_at · revoked_at")]
         tools[("tools<br/>id UUID · company_id · condition<br/>comment · condition_updated_at · is_active")]
         logs[("rental_logs · неизменяемый<br/>company_id · worker_id · tool_id · issuer_id<br/>(составные FK: всё из одной компании)<br/>validation_flag · signed_payload")]
         v_cur[("tool_current_holders<br/>последняя VALID по tool_id")]
@@ -117,9 +127,15 @@ flowchart LR
     S_reg -->|"Owner: INSERT"| companies
     S_companies -->|"SELECT"| companies
     S_login -->|"SELECT по phone"| users
+    S_login -->|"INSERT новой сессии"| rtokens
+    S_refresh -->|"SELECT FOR UPDATE · UPDATE revoked_at · INSERT"| rtokens
+    S_refresh -->|"роль и компания"| users
+    S_logout -->|"UPDATE revoked_at сессии"| rtokens
     S_cert -->|"SELECT по id"| users
+    S_me -->|"SELECT по id своей компании"| users
     S_users -->|"SELECT своей компании"| users
-    S_fire -->|"UPDATE is_active"| users
+    S_fire -->|"UPDATE is_active, deactivated_at"| users
+    S_fire -->|"UPDATE revoked_at всех сессий"| rtokens
     S_approve -->|"UPDATE is_approved"| users
 
     S_tools -->|"SELECT активные своей компании"| v_tools
@@ -134,11 +150,12 @@ flowchart LR
     S_logs -->|"SELECT своей компании"| logs
     S_notes -->|"SELECT своей компании"| notes
     S_read -->|"UPDATE read_at"| notes
-    S_reg & S_login & S_fire & S_approve & S_tnew & S_tpatch & S_tdel & S_sync -->|"INSERT события"| outbox
+    S_reg & S_login & S_refresh & S_fire & S_approve & S_tnew & S_tpatch & S_tdel & S_sync -->|"INSERT события"| outbox
 
     logs -.-> v_cur -.-> v_tools
     tools -.-> v_tools
     companies -.-> users & tools
+    users -.-> rtokens
 
     classDef actor fill:#1f4d3a,stroke:#3fb27f,color:#fff
     classDef mw fill:#1e3a5f,stroke:#4a8fd6,color:#fff
@@ -147,6 +164,6 @@ flowchart LR
 
     class Client actor
     class AuthN,AuthZ,Valid mw
-    class E_reg,E_login,E_key,E_cert,E_companies,E_users,E_fire,E_approve,E_tools,E_tnew,E_tget,E_tpatch,E_tdel,E_sync,E_logs,E_notes,E_read code
-    class S_reg,S_login,S_key,S_cert,S_companies,S_users,S_fire,S_approve,S_tools,S_tnew,S_tget,S_tpatch,S_tdel,S_sync,S_logs,S_notes,S_read code
-    class companies,users,tools,logs,v_cur,v_tools,outbox,notes db
+    class E_reg,E_login,E_refresh,E_logout,E_key,E_cert,E_companies,E_me,E_users,E_fire,E_approve,E_tools,E_tnew,E_tget,E_tpatch,E_tdel,E_sync,E_logs,E_notes,E_read code
+    class S_reg,S_login,S_refresh,S_logout,S_key,S_cert,S_companies,S_me,S_users,S_fire,S_approve,S_tools,S_tnew,S_tget,S_tpatch,S_tdel,S_sync,S_logs,S_notes,S_read code
+    class companies,users,rtokens,tools,logs,v_cur,v_tools,outbox,notes db

@@ -59,6 +59,10 @@ Backend из IDE слушает тот же порт 5000, что и backend в 
 1. Запустите `start-all.bat` (или `docker compose up -d --build`).
 2. Откройте http://localhost (через Nginx). Swagger: http://localhost:5000/swagger (если `ENABLE_SWAGGER=true`).
 
+Nginx слушает только HTTP (порт 80). Браузер считает безопасным лишь `localhost`, поэтому с телефона
+по `http://<IP-адрес>` не заработают вход (cookie `refresh_token` с атрибутом `Secure`), камера, WebCrypto
+и service worker. Для доступа с других устройств перед nginx нужен HTTPS.
+
 ### Остановка и сброс
 
 - `stop-all.bat` — остановить всё, что относится к проекту: контейнеры Docker (`docker compose down`),
@@ -79,14 +83,24 @@ Backend из IDE слушает тот же порт 5000, что и backend в 
 - База, созданная до появления миграций (старым `init.sql`), не запустится с понятной ошибкой:
   её нужно один раз пересоздать через `reset-db.bat`.
 
+### Тесты backend
+
+Нужен запущенный Docker Desktop: интеграционные тесты сами поднимают PostgreSQL и RabbitMQ в контейнерах (Testcontainers).
+В Visual Studio — «Обозреватель тестов», из консоли:
+
+```
+dotnet test backend/AccountThis.Api/AccountThis.Api.slnx
+```
+
 ## Структура проекта
 
+- `api.yaml` — спецификация API (OpenAPI); подробная логика — в документе
+  «Описание проекта подробно, используемое в разработке.docx» (оба файла — в корне репозитория).
 - `backend/AccountThis.Api/` — API на ASP.NET Core; к PostgreSQL обращается напрямую через Npgsql (без ORM).
-  - `api.yaml` — спецификация API (OpenAPI); подробная логика — в документе
-    «Описание проекта подробно, используемое в разработке.docx» рядом.
 - `backend/AccountThis.Api/Migrations/` — схема базы данных (миграции).
 - `backend/AccountThis.Worker/` — отдельный процесс-потребитель событий RabbitMQ: журнал аудита и уведомления Owner.
 - `backend/AccountThis.Shared/` — общее для API и Worker: контракт событий, топология RabbitMQ, чтение `.env`.
+- `backend/AccountThis.Api.Tests/` — unit- и интеграционные тесты (см. «Тесты backend»).
 - `docs/events.md` — события RabbitMQ: outbox, очереди, потребители.
 - `docs/architecture/` — схемы архитектуры (C4).
 - `frontend/` — UI на React, Vite и TypeScript; там же `nginx.conf` и `Dockerfile` для продакшен-сборки
@@ -100,12 +114,11 @@ Backend из IDE слушает тот же порт 5000, что и backend в 
 Основные файлы для работы (90% времени):
 
 - `frontend/src/` — главная рабочая директория.
-  - `src/components/` (создаётся по ходу) — UI-компоненты (кнопки, формы, таблицы, модалки).
-  - `src/pages/` или `src/views/` (создаётся по ходу) — страницы приложения (Авторизация, Дашборд, Профиль).
-  - `src/api/` или `src/services/` (создаётся по ходу) — запросы к бэкенду (Axios / fetch).
-  - `src/App.tsx` — главный корневой компонент приложения.
-  - `src/main.tsx` — точка входа React (подключение провайдеров, роутинга, стилей).
-  - `src/index.css` / `src/App.css` — глобальные CSS/Tailwind стили.
+  - `src/app/` — точка входа `main.tsx`, глобальные стили `index.css`, провайдеры (`providers/`: авторизация, тема)
+    и роутинг (`router/`: маршруты, layout для телефона и компьютера, проверка роли).
+  - `src/api/` — запросы к бэкенду (`fetch`): `http.ts` подставляет JWT и обновляет сессию при 401.
+  - `src/pages/` — страницы приложения (вход и регистрация, обзор по ролям, инструменты, журнал, пользователи, сканер и операция, профиль).
+  - `src/entities/` — модели данных страниц, `src/shared/` — общие UI-компоненты и навигация, `src/mock/` — временные данные.
 - `frontend/public/` — статика, которая отдаётся «как есть» (иконка сайта favicon.svg, логотипы, SVG-спрайты).
 
 Конфигурационные файлы (правятся редко):

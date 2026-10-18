@@ -10,6 +10,8 @@ obj/
 *.suo
 *.userosscache
 *.sln.docstates
+# Результаты тестов и покрытия (Обозреватель тестов Visual Studio)
+TestResults/
 
 # Frontend (Node / Vite)
 node_modules/

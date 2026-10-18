@@ -137,12 +137,17 @@ public class SyncService(
             createdFlags[flag.ToString()] = createdFlags.GetValueOrDefault(flag.ToString()) + 1;
         }
 
-        await eventOutbox.AddAsync(conn, transaction, EventTypes.RentalSynced, companyId, issuerId, new
+        // Только повторно отправленные записи ничего не меняют — события нет
+        if (createdFlags.Count > 0)
         {
-            total = records.Count,
-            created = createdFlags.Values.Sum(),
-            flags = createdFlags,
-        }, cancellationToken);
+            await eventOutbox.AddAsync(conn, transaction, EventTypes.RentalSynced, companyId, issuerId, new
+            {
+                total = records.Count,
+                created = createdFlags.Values.Sum(),
+                flags = createdFlags,
+            }, cancellationToken);
+        }
+
         await transaction.CommitAsync(cancellationToken);
 
         return SyncOutcome.Saved(results);

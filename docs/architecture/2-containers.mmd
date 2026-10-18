@@ -23,7 +23,7 @@ flowchart LR
     Env[/".env<br/>POSTGRES_* · RABBITMQ_*<br/>ключи сервера и JWT"/]
     Init[/"Migrations/*.sql<br/>схема БД (применяет backend)"/]
 
-    SPA -->|"HTTPS<br/>/api/* с JWT,<br/>/api/auth/* с cookie refresh_token"| Nginx
+    SPA -->|"HTTPS или http://localhost<br/>/api/* с JWT,<br/>/api/auth/* с cookie refresh_token"| Nginx
     Nginx -->|"proxy_pass"| Backend
     Backend -->|"Npgsql<br/>SQL, событие в outbox_events<br/>в той же транзакции"| Postgres
     Backend -->|"outbox → событие<br/>publisher confirms"| Rabbit

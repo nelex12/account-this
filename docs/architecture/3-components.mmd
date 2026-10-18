@@ -51,6 +51,7 @@ flowchart LR
     subgraph DB["PostgreSQL · Npgsql"]
         companies[("companies")]
         users[("users")]
+        rtokens[("refresh_tokens")]
         tools[("tools")]
         logs[("rental_logs")]
         holders[("tools_with_holders")]
@@ -71,9 +72,9 @@ flowchart LR
     AuthS --> Hasher & Jwt & Sig
     SyncS --> Qr & Sig
 
-    AuthS --> users & companies
+    AuthS --> users & companies & rtokens
     CompaniesS --> companies
-    UsersS --> users
+    UsersS --> users & rtokens
     ToolsS --> tools & holders
     SyncS --> logs & tools & users
     NotificationsS --> notifications & users
@@ -92,4 +93,4 @@ flowchart LR
     class AuthN,AuthZ,Valid mw
     class AuthC,CompaniesC,UsersC,ToolsC,SyncC,NotificationsC,AuthS,CompaniesS,UsersS,ToolsS,SyncS,NotificationsS code
     class Hasher,Jwt,Sig,Qr,Outbox,Dispatcher helper
-    class companies,users,tools,logs,holders,outbox,notifications,Rabbit db
+    class companies,users,rtokens,tools,logs,holders,outbox,notifications,Rabbit db

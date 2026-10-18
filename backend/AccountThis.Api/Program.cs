@@ -36,6 +36,20 @@ if (string.IsNullOrEmpty(jwtSigningKey))
         "Переменная JWT_SIGNING_KEY не задана. Скопируйте env.example в .env и сгенерируйте ключи (generate-keys.bat).");
 }
 
+// HMAC-SHA256 требует ключ не короче 256 бит: иначе первый вход упал бы с 500, а не старт приложения
+if (Base64UrlEncoder.DecodeBytes(jwtSigningKey).Length < 32)
+{
+    throw new InvalidOperationException(
+        "JWT_SIGNING_KEY короче 32 байт. Сгенерируйте ключ заново (generate-keys.bat).");
+}
+
+// Ключ подписи сертификатов сотрудников проверяется при старте, а не при первом запросе к /api/auth/*
+if (string.IsNullOrEmpty(builder.Configuration["SERVER_SIGNING_KEY"]))
+{
+    throw new InvalidOperationException(
+        "Переменная SERVER_SIGNING_KEY не задана. Скопируйте env.example в .env и сгенерируйте ключи (generate-keys.bat).");
+}
+
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -80,6 +94,9 @@ builder.Services.AddScoped<ISyncService, SyncService>();
 builder.Services.AddScoped<INotificationsService, NotificationsService>();
 
 var app = builder.Build();
+
+// Ключ сервера разбирается сразу: неверный SERVER_SIGNING_KEY — ошибка старта, а не 500 на первом запросе
+_ = app.Services.GetRequiredService<ISignatureService>();
 
 // Схема БД приводится к актуальной до приёма запросов (Migrations/*.sql)
 await DatabaseMigrator.MigrateAsync(dataSource, app.Logger);

@@ -1,0 +1,8 @@
+# Контекст сборки образа nginx (frontend/Dockerfile). Зависимости ставятся в образе заново (npm ci):
+# локальные node_modules собраны под Windows (нативные модули Vite и oxlint) и в Linux-контейнере не работают
+node_modules
+dist
+dev-dist
+.vite
+*.local
+*.log
