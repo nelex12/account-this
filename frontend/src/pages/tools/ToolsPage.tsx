@@ -177,7 +177,12 @@ export default function ToolsPage() {
           <Stack
             direction={isMobile ? 'column' : 'row'}
             spacing={2}
-            sx={{ alignItems: isMobile ? 'stretch' : 'center', flexWrap: 'wrap' }}
+            sx={{
+              alignItems: isMobile ? 'stretch' : 'center',
+              // A wrapping column grows to the chips' full width on phones
+              // and causes horizontal page scroll, so wrap on desktop only
+              flexWrap: isMobile ? 'nowrap' : 'wrap',
+            }}
           >
             <TextField
               type="search"
@@ -202,6 +207,7 @@ export default function ToolsPage() {
               direction="row"
               spacing={1}
               sx={{
+                minWidth: 0,
                 overflowX: isMobile ? 'auto' : 'visible',
                 pb: isMobile ? 0.5 : 0,
               }}

@@ -15,6 +15,7 @@ TestResults/
 
 # Frontend (Node / Vite)
 node_modules/
+dev-dist/
 dist/
 .output/
 .vite/
