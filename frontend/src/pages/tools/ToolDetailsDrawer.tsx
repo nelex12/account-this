@@ -9,6 +9,11 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
 import MenuItem from '@mui/material/MenuItem';
@@ -17,7 +22,8 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 
 import { ApiError } from '../../api/auth';
-import { useTool, useUpdateToolCondition } from '../../api/tools';
+import { useDeleteTool, useTool, useUpdateToolCondition } from '../../api/tools';
+import { useAuth } from '../../app/providers/AuthProvider';
 import {
   formatUnix,
   getToolLocation,
@@ -41,11 +47,17 @@ export default function ToolDetailsDrawer({ toolId, onClose }: ToolDetailsDrawer
   const open = toolId !== null;
   const { data: tool, isLoading, error } = useTool(toolId ?? '');
   const update = useUpdateToolCondition();
+  const writeOff = useDeleteTool();
+
+  const closeNow = () => {
+    update.reset();
+    writeOff.reset();
+    onClose();
+  };
 
   const handleClose = () => {
-    if (update.isPending) return;
-    update.reset();
-    onClose();
+    if (update.isPending || writeOff.isPending) return;
+    closeNow();
   };
 
   return (
@@ -88,7 +100,9 @@ export default function ToolDetailsDrawer({ toolId, onClose }: ToolDetailsDrawer
             key={`${tool.id}:${tool.condition}:${tool.comment ?? ''}`}
             tool={tool}
             update={update}
+            writeOff={writeOff}
             onClose={handleClose}
+            onWrittenOff={closeNow}
           />
         )}
       </Box>
@@ -101,10 +115,18 @@ export default function ToolDetailsDrawer({ toolId, onClose }: ToolDetailsDrawer
 interface ToolDetailsBodyProps {
   tool: Tool;
   update: ReturnType<typeof useUpdateToolCondition>;
+  writeOff: ReturnType<typeof useDeleteTool>;
   onClose: () => void;
+  /** Called after a successful write-off; closes the drawer unconditionally. */
+  onWrittenOff: () => void;
 }
 
-function ToolDetailsBody({ tool, update, onClose }: ToolDetailsBodyProps) {
+function ToolDetailsBody({ tool, update, writeOff, onClose, onWrittenOff }: ToolDetailsBodyProps) {
+  const { user } = useAuth();
+  // DELETE /api/tools/{id} is Owner only; written-off tools can't be written off again
+  const canWriteOff = user?.role === 'Owner' && tool.isActive;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
   const [condition, setCondition] = useState<ToolCondition>(tool.condition);
   const [comment, setComment] = useState(tool.comment ?? '');
 
@@ -127,6 +149,15 @@ function ToolDetailsBody({ tool, update, onClose }: ToolDetailsBodyProps) {
     if (conditionChanged) payload.condition = condition;
     if (commentChanged) payload.comment = comment;
     mutate({ id: tool.id, payload });
+  };
+
+  const handleWriteOff = () => {
+    writeOff.mutate(tool.id, {
+      onSuccess: () => {
+        setConfirmOpen(false);
+        onWrittenOff();
+      },
+    });
   };
 
   return (
@@ -180,6 +211,13 @@ function ToolDetailsBody({ tool, update, onClose }: ToolDetailsBodyProps) {
 
         <Stack spacing={2}>
           {generalError && <Alert severity="error">{generalError}</Alert>}
+          {writeOff.error && !confirmOpen && (
+            <Alert severity="error">
+              {writeOff.error instanceof ApiError
+                ? writeOff.error.message
+                : 'Не удалось списать инструмент. Проверьте соединение'}
+            </Alert>
+          )}
           {isSuccess && <Alert severity="success">Сохранено</Alert>}
 
           <TextField
@@ -220,7 +258,17 @@ function ToolDetailsBody({ tool, update, onClose }: ToolDetailsBodyProps) {
       </Box>
 
       <Divider />
-      <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', px: 3, py: 2 }}>
+      <Stack direction="row" spacing={2} sx={{ alignItems: 'center', px: 3, py: 2 }}>
+        {canWriteOff && (
+          <Button
+            color="error"
+            onClick={() => setConfirmOpen(true)}
+            disabled={isPending}
+          >
+            Списать
+          </Button>
+        )}
+        <Box sx={{ flexGrow: 1 }} />
         <Button onClick={onClose} disabled={isPending}>
           Закрыть
         </Button>
@@ -233,6 +281,41 @@ function ToolDetailsBody({ tool, update, onClose }: ToolDetailsBodyProps) {
           Сохранить
         </Button>
       </Stack>
+
+      <Dialog
+        open={confirmOpen}
+        onClose={() => !writeOff.isPending && setConfirmOpen(false)}
+      >
+        <DialogTitle>Списать инструмент?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            «{tool.name}» исчезнет из реестра. Действие необратимо; записи в
+            журнале останутся.
+          </DialogContentText>
+          {writeOff.error && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {writeOff.error instanceof ApiError
+                ? writeOff.error.message
+                : 'Не удалось списать инструмент. Проверьте соединение'}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)} disabled={writeOff.isPending}>
+            Отмена
+          </Button>
+          <Button
+            color="error"
+            onClick={handleWriteOff}
+            disabled={writeOff.isPending}
+            startIcon={
+              writeOff.isPending ? <CircularProgress size={16} color="inherit" /> : undefined
+            }
+          >
+            Списать
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

@@ -11,8 +11,7 @@ import { queryKeys } from './queryKeys';
 
 /*
  * Wired to the backend: GET /api/tools, GET /api/tools/{id}, POST /api/tools,
- * PATCH /api/tools/{id}. DELETE (write off) is NOT wired yet: it throws until
- * the backend side is confirmed ready for the UI.
+ * PATCH /api/tools/{id}, DELETE /api/tools/{id}.
  */
 
 /* --------------------------------- helpers --------------------------------- */
@@ -57,10 +56,6 @@ async function failFrom(response: Response, fallback: string): Promise<never> {
 
   const detail = typeof body?.detail === 'string' ? body.detail : undefined;
   throw new ApiError(detail ?? `${fallback} (${response.status})`, response.status);
-}
-
-function notWired(what: string): never {
-  throw new ApiError(`${what}: пока не подключено к серверу`, 501);
 }
 
 /* ------------------------------- Raw functions ------------------------------ */
@@ -111,9 +106,16 @@ export async function updateToolCondition(
   if (!response.ok) return failFrom(response, 'Не удалось обновить инструмент');
 }
 
-/** DELETE /api/tools/{id} — not wired yet. */
-export async function deleteTool(_id: string): Promise<void> {
-  return notWired('Списание инструмента');
+/**
+ * DELETE /api/tools/{id} — Owner only. Writes the tool off (is_active = false):
+ * irreversible, repeat call is also 200. The tool disappears from GET /api/tools
+ * but stays in GET /api/tools/{id} and in the journal. 200 without body.
+ */
+export async function deleteTool(id: string): Promise<void> {
+  const response = await apiFetch(`/api/tools/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) return failFrom(response, 'Не удалось списать инструмент');
 }
 
 /* ---------------------------------- Hooks ----------------------------------- */
