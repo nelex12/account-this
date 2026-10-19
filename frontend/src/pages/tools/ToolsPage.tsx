@@ -18,7 +18,8 @@ import { useTheme } from '@mui/material/styles';
 
 import StatusBadge from '../../shared/ui/StatusBadge';
 import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
-import { SearchIcon } from '../../shared/Icons';
+import { AddIcon, SearchIcon } from '../../shared/Icons';
+import { useAddToolDialog } from '../../app/providers/AddToolDialogProvider';
 
 import { useTools } from '../../api/tools';
 import {
@@ -30,6 +31,7 @@ import {
 } from '../../entities/toolsModel';
 
 import ToolCard from './ToolCard';
+import ToolDetailsDrawer from './ToolDetailsDrawer';
 import { conditionBadge } from './toolCondition';
 
 /* ----------------------------------- Data ----------------------------------- */
@@ -50,7 +52,8 @@ const filterPredicates: Record<ToolFilter, (tool: Tool) => boolean> = {
   faulty: isFaulty,
 };
 
-const columns: DataTableColumn<Tool>[] = [
+function getColumns(onDetails: (tool: Tool) => void): DataTableColumn<Tool>[] {
+  return [
   {
     key: 'tool',
     label: 'ИНСТРУМЕНТ',
@@ -86,9 +89,10 @@ const columns: DataTableColumn<Tool>[] = [
     key: 'actions',
     label: 'ДЕЙСТВИЯ',
     width: '15%',
-    render: () => <Button>Подробнее</Button>,
+    render: (tool) => <Button onClick={() => onDetails(tool)}>Подробнее</Button>,
   },
-];
+  ];
+}
 
 const ROWS_PER_PAGE = 8;
 
@@ -100,11 +104,18 @@ export default function ToolsPage() {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const { data: tools, isLoading, error } = useTools();
+  const { openAddTool } = useAddToolDialog();
 
   const [tab, setTab] = useState(0);
   const [filter, setFilter] = useState<ToolFilter>('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
+  const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
+
+  const columns = useMemo(
+    () => getColumns((tool) => setSelectedToolId(tool.id)),
+    [],
+  );
 
   const filteredTools = useMemo(() => {
     if (!tools) return [];
@@ -149,6 +160,13 @@ export default function ToolsPage() {
 
   return (
     <Stack spacing={isMobile ? 2 : 3} sx={{ p: isMobile ? 2 : 3 }}>
+      {/* The top bar button is desktop-only, so phones get one here */}
+      {isMobile && (
+        <Button variant="contained" startIcon={<AddIcon />} onClick={openAddTool}>
+          Добавить инструмент
+        </Button>
+      )}
+
       <Tabs value={tab} onChange={(_, value: number) => setTab(value)}>
         <Tab label="Таблица" />
         <Tab label="Стенд" />
@@ -205,7 +223,11 @@ export default function ToolsPage() {
             <>
               <Stack spacing={1.5}>
                 {pageTools.map((tool) => (
-                  <ToolCard key={tool.id} tool={tool} />
+                  <ToolCard
+                    key={tool.id}
+                    tool={tool}
+                    onDetails={(t) => setSelectedToolId(t.id)}
+                  />
                 ))}
 
                 {pageTools.length === 0 && (
@@ -244,6 +266,11 @@ export default function ToolsPage() {
           )}
         </>
       )}
+
+      <ToolDetailsDrawer
+        toolId={selectedToolId}
+        onClose={() => setSelectedToolId(null)}
+      />
     </Stack>
   );
 }

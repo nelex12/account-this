@@ -1,15 +1,15 @@
 // DesktopLayout.tsx
-import { Outlet, useLocation, useMatches } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import NavigationRail from '../../../shared/ui/NavigationRail';
 import TopAppBar from '../../../shared/ui/TopAppBar';
-import type { RouteHandle } from '../routes';
 import { useGoBack } from '../useGoBack';
+import { useTopBar } from '../useTopBar';
 
 const HOME_PATH = '/overview';
 
 export default function DesktopLayout() {
-  const handle = useMatches().at(-1)?.handle as RouteHandle | undefined;
+  const topBar = useTopBar();
   const { pathname } = useLocation();
   const goBack = useGoBack();
 
@@ -18,9 +18,9 @@ export default function DesktopLayout() {
       <NavigationRail />
 
       <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        {handle?.topBar && (
+        {topBar && (
           <TopAppBar
-            {...handle.topBar}
+            {...topBar}
             onBack={pathname === HOME_PATH ? undefined : goBack}
           />
         )}

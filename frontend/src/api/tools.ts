@@ -10,28 +10,52 @@ import { apiFetch } from './http';
 import { queryKeys } from './queryKeys';
 
 /*
- * Reading (GET /api/tools, GET /api/tools/{id}) goes to the backend.
- * Writing (create / update condition / write off) is NOT wired yet: those
- * functions throw until the backend side is confirmed ready for the UI.
+ * Wired to the backend: GET /api/tools, GET /api/tools/{id}, POST /api/tools,
+ * PATCH /api/tools/{id}. DELETE (write off) is NOT wired yet: it throws until
+ * the backend side is confirmed ready for the UI.
  */
 
 /* --------------------------------- helpers --------------------------------- */
 
-/** ProblemDetails.detail (Russian, meant for the user) if the body has one. */
-async function readDetail(response: Response): Promise<string | undefined> {
+interface ProblemBody {
+  detail?: unknown;
+  errors?: Record<string, string[]>;
+}
+
+/** Parsed ProblemDetails / ValidationProblemDetails, or null if there is no JSON body. */
+async function readProblem(response: Response): Promise<ProblemBody | null> {
   try {
-    const body = (await response.json()) as { detail?: unknown };
-    return typeof body.detail === 'string' ? body.detail : undefined;
+    return (await response.json()) as ProblemBody;
   } catch {
-    return undefined; // 401/403 from the JWT layer come without a body
+    return null; // 401/403 from the JWT layer come without a body
   }
 }
 
+/**
+ * Throws ApiError for a non-2xx response:
+ *  - 403 -> role has no access;
+ *  - 400 -> ValidationProblemDetails: messages per field go to ApiError.fieldErrors
+ *    (keys are JSON field names, e.g. `name`, `condition`, `id`);
+ *  - 415 -> body was not sent as application/json;
+ *  - others -> ProblemDetails.detail (Russian, meant for the user) if present.
+ */
 async function failFrom(response: Response, fallback: string): Promise<never> {
   if (response.status === 403) {
     throw new ApiError('Нет доступа к инструментам для вашей роли', 403);
   }
-  const detail = await readDetail(response);
+
+  const body = await readProblem(response);
+
+  if (response.status === 400 && body?.errors) {
+    const first = Object.values(body.errors).flat()[0];
+    throw new ApiError(first ?? 'Некорректные данные', 400, body.errors);
+  }
+
+  if (response.status === 415) {
+    throw new ApiError('Сервер не принял формат запроса (ожидается JSON)', 415);
+  }
+
+  const detail = typeof body?.detail === 'string' ? body.detail : undefined;
   throw new ApiError(detail ?? `${fallback} (${response.status})`, response.status);
 }
 
@@ -55,17 +79,36 @@ export async function getTool(id: string): Promise<Tool> {
   return (await response.json()) as Tool;
 }
 
-/** POST /api/tools — not wired yet. */
-export async function createTool(_payload: CreateToolRequest): Promise<Tool> {
-  return notWired('Добавление инструмента');
+/**
+ * POST /api/tools — Issuer, Owner. 201 + the created Tool (id assigned by the DB).
+ * 400 = ValidationProblemDetails: messages per field are in ApiError.fieldErrors
+ * (key `name`). The tool is always created Good / no comment / no holder.
+ */
+export async function createTool(payload: CreateToolRequest): Promise<Tool> {
+  const response = await apiFetch('/api/tools', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) return failFrom(response, 'Не удалось добавить инструмент');
+  return (await response.json()) as Tool;
 }
 
-/** PATCH /api/tools/{id} — not wired yet. */
+/**
+ * PATCH /api/tools/{id} — Issuer, Owner. 200 without body.
+ * A field that is absent (or null) is unchanged; `comment: ""` clears the comment.
+ * Allowed for written-off tools too. 404 = no such tool in the caller's company.
+ */
 export async function updateToolCondition(
-  _id: string,
-  _payload: UpdateToolConditionRequest,
+  id: string,
+  payload: UpdateToolConditionRequest,
 ): Promise<void> {
-  return notWired('Изменение состояния инструмента');
+  const response = await apiFetch(`/api/tools/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) return failFrom(response, 'Не удалось обновить инструмент');
 }
 
 /** DELETE /api/tools/{id} — not wired yet. */
@@ -108,6 +151,7 @@ export function useUpdateToolCondition() {
       id: string;
       payload: UpdateToolConditionRequest;
     }) => updateToolCondition(id, payload),
+    // ['tools'] is a prefix of ['tools', id], so the list and the opened tool both refetch
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.tools }),
   });
 }

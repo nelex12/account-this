@@ -6,6 +6,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import { AddIcon, PrintIcon } from '../../shared/Icons';
 import type { TopAppBarAction } from '../../shared/ui/TopAppBar';
 import { useAuth } from '../providers/AuthProvider';
+import { AddToolDialogProvider } from '../providers/AddToolDialogProvider';
 import RoleGuard from './RoleGuard';
 import DesktopLayout from './layouts/DesktopLayout';
 import MobileLayout from './layouts/MobileLayout';
@@ -37,7 +38,10 @@ export interface RouteHandle {
     /** Outlined button before the primary one; desktop only. */
     secondaryAction?: TopAppBarAction;
     /** Primary (contained) button; desktop only. */
-    primaryAction?: TopAppBarAction;
+    primaryAction?: TopAppBarAction & {
+      /** Marks actions whose handler is attached by useTopBar(). */
+      id?: 'addTool';
+    };
   };
 }
 
@@ -66,9 +70,17 @@ function LayoutByRole() {
 
   switch (user.role) {
     case 'Owner':
-      return <DesktopLayout />;
+      return (
+        <AddToolDialogProvider>
+          <DesktopLayout />
+        </AddToolDialogProvider>
+      );
     case 'Issuer':
-      return <MobileLayout />;
+      return (
+        <AddToolDialogProvider>
+          <MobileLayout />
+        </AddToolDialogProvider>
+      );
     case 'Worker':
       return <SimpleLayout />;
   }
@@ -156,9 +168,10 @@ export const router = createBrowserRouter([
                   topBar: {
                     title: 'Инструменты',
                     statusLabel: 'В сети',
-                    // No onClick yet: stickers export and tool creation are not wired
+                    // No onClick yet: stickers export is not wired
                     secondaryAction: { label: 'Печать/Загрузка наклеек', icon: <PrintIcon /> },
-                    primaryAction: { label: 'Добавить инструмент', icon: <AddIcon /> },
+                    // onClick (open the dialog) is attached by useTopBar()
+                    primaryAction: { id: 'addTool', label: 'Добавить инструмент', icon: <AddIcon /> },
                   },
                 } satisfies RouteHandle,
               },

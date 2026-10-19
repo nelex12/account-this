@@ -1,95 +1,135 @@
 // AddToolDialog.tsx
+// Dialog for creating a tool: POST /api/tools (Issuer, Owner).
+// api.yaml CreateToolRequest has a single field — `name` (required, max 100 chars,
+// it ends up in the employee's QR). On success the tools list is refetched
+// (useCreateTool invalidates it) and the dialog closes.
 import { useEffect, useState } from 'react';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
+import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
-import DialogActions from '@mui/material/DialogActions';
-import TextField from '@mui/material/TextField';
-import Button from '@mui/material/Button';
+import DialogTitle from '@mui/material/DialogTitle';
 import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
 
-export interface AddToolFormValues {
-  name: string;
-  inventoryNumber: string;
-  location: string;
-}
+import { ApiError } from '../../api/auth';
+import { useCreateTool } from '../../api/tools';
 
-const emptyValues: AddToolFormValues = {
-  name: '',
-  inventoryNumber: '',
-  location: '',
-};
+/** api.yaml CreateToolRequest.name maxLength. */
+export const TOOL_NAME_MAX_LENGTH = 100;
 
 interface AddToolDialogProps {
   open: boolean;
   onClose: () => void;
-  onSubmit?: (values: AddToolFormValues) => void;
 }
 
-export default function AddToolDialog({ open, onClose, onSubmit }: AddToolDialogProps) {
-  const [values, setValues] = useState<AddToolFormValues>(emptyValues);
+export default function AddToolDialog({ open, onClose }: AddToolDialogProps) {
+  const [name, setName] = useState('');
+  const [touched, setTouched] = useState(false);
 
-  // Reset the form each time the dialog opens
+  const { mutate, isPending, error, reset } = useCreateTool();
+
+  // Fresh form (and no stale error) each time the dialog opens
   useEffect(() => {
-    if (open) setValues(emptyValues);
-  }, [open]);
+    if (open) {
+      setName('');
+      setTouched(false);
+      reset();
+    }
+  }, [open, reset]);
 
-  const handleChange =
-    (field: keyof AddToolFormValues) =>
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      setValues((prev) => ({ ...prev, [field]: event.target.value }));
-    };
+  const trimmedName = name.trim();
+  const localError =
+    name.length > TOOL_NAME_MAX_LENGTH
+      ? `Не более ${TOOL_NAME_MAX_LENGTH} символов`
+      : touched && trimmedName.length === 0
+        ? 'Введите название инструмента'
+        : null;
 
-  const handleSubmit = () => {
-    onSubmit?.(values);
-    onClose();
+  // Server-side validation message for `name` (400), if any
+  const serverFieldError =
+    error instanceof ApiError ? error.fieldErrors?.name?.[0] : undefined;
+  // Anything else (403, 5xx, network): shown above the form
+  const generalError =
+    error && !serverFieldError
+      ? error instanceof ApiError
+        ? error.message
+        : 'Не удалось добавить инструмент. Проверьте соединение'
+      : null;
+
+  const fieldError = localError ?? serverFieldError ?? null;
+  const canSubmit =
+    trimmedName.length > 0 && name.length <= TOOL_NAME_MAX_LENGTH && !isPending;
+
+  const handleClose = () => {
+    if (!isPending) onClose();
+  };
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setTouched(true);
+    if (!canSubmit) return;
+    mutate({ name: trimmedName }, { onSuccess: onClose });
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Добавить инструмент</DialogTitle>
+    <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
+      <form onSubmit={handleSubmit} noValidate>
+        <DialogTitle>Добавить инструмент</DialogTitle>
 
-      <DialogContent>
-        <DialogContentText sx={{ mb: 2 }}>
-          Заполните данные, чтобы добавить инструмент в реестр.
-          Наклейку можно распечатать позже.
-        </DialogContentText>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            Инструмент появится в реестре вашей компании. Идентификатор
+            присваивается автоматически — по нему печатается QR-наклейка.
+          </DialogContentText>
 
-        <Stack spacing={2}>
-          <TextField
-            label="Название"
-            placeholder="Например, Дрель Bosch SGB 235"
-            helperText="Марка и модель"
-            value={values.name}
-            onChange={handleChange('name')}
-            fullWidth
-          />
+          <Stack spacing={2}>
+            {generalError && <Alert severity="error">{generalError}</Alert>}
 
-          <TextField
-            label="Инвентарный номер"
-            placeholder="№0000"
-            helperText="Печатается на наклейке"
-            value={values.inventoryNumber}
-            onChange={handleChange('inventoryNumber')}
-            fullWidth
-          />
+            <TextField
+              autoFocus
+              required
+              label="Название"
+              placeholder="Например, Дрель Bosch GSB 16 RE"
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value);
+                if (error) reset();
+              }}
+              onBlur={() => setTouched(true)}
+              error={fieldError !== null}
+              helperText={
+                fieldError ??
+                `Марка и модель · ${name.length}/${TOOL_NAME_MAX_LENGTH}`
+              }
+              disabled={isPending}
+              fullWidth
+            />
 
-          <TextField
-            label="Местоположение"
-            placeholder="Склад А"
-            helperText="Где хранится инструмент"
-            value={values.location}
-            onChange={handleChange('location')}
-            fullWidth
-          />
-        </Stack>
-      </DialogContent>
+            <DialogContentText variant="body2">
+              Новый инструмент создаётся в состоянии «Исправен», без комментария
+              и без держателя. Состояние и комментарий можно изменить позже.
+            </DialogContentText>
+          </Stack>
+        </DialogContent>
 
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={onClose}>Отмена</Button>
-        <Button onClick={handleSubmit}>Добавить</Button>
-      </DialogActions>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={handleClose} disabled={isPending}>
+            Отмена
+          </Button>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={!canSubmit}
+            startIcon={isPending ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
+            Добавить
+          </Button>
+        </DialogActions>
+      </form>
     </Dialog>
   );
 }
