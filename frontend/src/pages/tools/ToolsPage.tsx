@@ -18,8 +18,9 @@ import { useTheme } from '@mui/material/styles';
 
 import StatusBadge from '../../shared/ui/StatusBadge';
 import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
-import { AddIcon, SearchIcon } from '../../shared/Icons';
+import { AddIcon, PrintIcon, SearchIcon } from '../../shared/Icons';
 import { useAddToolDialog } from '../../app/providers/AddToolDialogProvider';
+import { useStickersDialog } from '../../app/providers/StickersDialogProvider';
 
 import { useTools } from '../../api/tools';
 import {
@@ -105,6 +106,7 @@ export default function ToolsPage() {
 
   const { data: tools, isLoading, error } = useTools();
   const { openAddTool } = useAddToolDialog();
+  const { openStickers } = useStickersDialog();
 
   const [tab, setTab] = useState(0);
   const [filter, setFilter] = useState<ToolFilter>('all');
@@ -160,11 +162,16 @@ export default function ToolsPage() {
 
   return (
     <Stack spacing={isMobile ? 2 : 3} sx={{ p: isMobile ? 2 : 3 }}>
-      {/* The top bar button is desktop-only, so phones get one here */}
+      {/* The top bar buttons are desktop-only, so phones get them here */}
       {isMobile && (
-        <Button variant="contained" startIcon={<AddIcon />} onClick={openAddTool}>
-          Добавить инструмент
-        </Button>
+        <Stack spacing={1.5}>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={openAddTool}>
+            Добавить инструмент
+          </Button>
+          <Button variant="outlined" startIcon={<PrintIcon />} onClick={() => openStickers()}>
+            Печать/Загрузка наклеек
+          </Button>
+        </Stack>
       )}
 
       <Tabs value={tab} onChange={(_, value: number) => setTab(value)}>

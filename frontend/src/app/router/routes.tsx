@@ -7,6 +7,7 @@ import { AddIcon, PrintIcon } from '../../shared/Icons';
 import type { TopAppBarAction } from '../../shared/ui/TopAppBar';
 import { useAuth } from '../providers/AuthProvider';
 import { AddToolDialogProvider } from '../providers/AddToolDialogProvider';
+import { StickersDialogProvider } from '../providers/StickersDialogProvider';
 import RoleGuard from './RoleGuard';
 import DesktopLayout from './layouts/DesktopLayout';
 import MobileLayout from './layouts/MobileLayout';
@@ -36,7 +37,10 @@ export interface RouteHandle {
     supportingText?: string;
     statusLabel?: string;
     /** Outlined button before the primary one; desktop only. */
-    secondaryAction?: TopAppBarAction;
+    secondaryAction?: TopAppBarAction & {
+      /** Marks actions whose handler is attached by useTopBar(). */
+      id?: 'stickers';
+    };
     /** Primary (contained) button; desktop only. */
     primaryAction?: TopAppBarAction & {
       /** Marks actions whose handler is attached by useTopBar(). */
@@ -72,13 +76,17 @@ function LayoutByRole() {
     case 'Owner':
       return (
         <AddToolDialogProvider>
-          <DesktopLayout />
+          <StickersDialogProvider>
+            <DesktopLayout />
+          </StickersDialogProvider>
         </AddToolDialogProvider>
       );
     case 'Issuer':
       return (
         <AddToolDialogProvider>
-          <MobileLayout />
+          <StickersDialogProvider>
+            <MobileLayout />
+          </StickersDialogProvider>
         </AddToolDialogProvider>
       );
     case 'Worker':
@@ -175,8 +183,8 @@ export const router = createBrowserRouter([
                   topBar: {
                     title: 'Инструменты',
                     statusLabel: 'В сети',
-                    // No onClick yet: stickers export is not wired
-                    secondaryAction: { label: 'Печать/Загрузка наклеек', icon: <PrintIcon /> },
+                    // onClick (open the stickers dialog) is attached by useTopBar()
+                    secondaryAction: { id: 'stickers', label: 'Печать/Загрузка наклеек', icon: <PrintIcon /> },
                     // onClick (open the dialog) is attached by useTopBar()
                     primaryAction: { id: 'addTool', label: 'Добавить инструмент', icon: <AddIcon /> },
                   },

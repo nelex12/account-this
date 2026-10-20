@@ -25,6 +25,14 @@ export interface OperationChoice {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
+ * Text written into the QR of a tool sticker (the exact inverse of parseToolSticker).
+ * Compact JSON {"toolId","toolName"}: the format is defined by the frontend, the server never reads it.
+ */
+export function buildToolSticker(tool: { id: string; name: string }): string {
+  return JSON.stringify({ toolId: tool.id, toolName: tool.name });
+}
+
+/**
  * Parses the text of a tool sticker.
  * TODO: the sticker format is not fixed in api.yaml (only "toolId + toolName").
  * Accepted for now: JSON {"toolId","toolName"} or a bare UUID. Adjust here only.
