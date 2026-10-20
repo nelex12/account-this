@@ -48,6 +48,8 @@ export { default as CancelIcon } from '@mui/icons-material/Cancel';
 export { default as VisibilityIcon } from '@mui/icons-material/Visibility';
 export { default as VisibilityOffIcon } from '@mui/icons-material/VisibilityOff';
 export { default as FlashOnIcon } from '@mui/icons-material/FlashOn';
+export { default as FlashOffIcon } from '@mui/icons-material/FlashOff';
+export { default as CameraswitchIcon } from '@mui/icons-material/Cameraswitch';
 
 /* ------------------------ Journal / issue / return ------------------------ */
 

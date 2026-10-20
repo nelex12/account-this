@@ -7,6 +7,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        // wasm = QR decoder fallback (zxing); precached so the scanner works offline
+        globPatterns: ['**/*.{js,css,html,svg,ico,png,woff,woff2,wasm}'],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+      },
       devOptions: {
         enabled: true
       },

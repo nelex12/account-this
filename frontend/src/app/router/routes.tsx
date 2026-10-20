@@ -140,15 +140,22 @@ export const router = createBrowserRouter([
             handle: { topBar: { title: 'Профиль' } } satisfies RouteHandle,
           },
 
-          // Worker only
+          // Worker + Issuer: the camera (Worker scans tools, Issuer scans workers' QR)
           {
-            element: <RoleGuard roles={['Worker']} />,
+            element: <RoleGuard roles={['Worker', 'Issuer']} />,
             children: [
               {
                 path: '/scan',
                 element: <ScanPage />,
                 handle: { topBar: { title: 'Камера' } } satisfies RouteHandle,
               },
+            ],
+          },
+
+          // Worker only
+          {
+            element: <RoleGuard roles={['Worker']} />,
+            children: [
               {
                 path: '/operation',
                 element: <OperationPage />,
