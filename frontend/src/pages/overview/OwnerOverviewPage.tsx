@@ -1,10 +1,12 @@
 // OwnerOverviewPage.tsx
 import type { ReactNode } from 'react';
 import Avatar from '@mui/material/Avatar';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CircularProgress from '@mui/material/CircularProgress';
+import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import DataTable, { type DataTableColumn } from '../../shared/ui/DataTable';
@@ -18,6 +20,15 @@ import {
   HourglassEmptyIcon,
 } from '../../shared/Icons';
 import {
+  countFlaggedRecords,
+  getNotificationSubject,
+  notificationTitles,
+  type Notification,
+} from '../../entities/notificationsModel';
+import { formatUnix } from '../../entities/journalModel';
+import {
+  useMarkNotificationRead,
+  useNotifications,
   useOverview,
   type OverviewHistoryRow,
   type OverviewSummary,
@@ -92,6 +103,102 @@ function SummaryCard({ id, label, value, caption }: OverviewSummary) {
   );
 }
 
+interface NotificationItemProps {
+  notification: Notification;
+  /** This item's "mark as read" request is in flight. */
+  isMarking: boolean;
+  onMarkRead: (id: number) => void;
+}
+
+function NotificationItem({ notification, isMarking, onMarkRead }: NotificationItemProps) {
+  const { type, isRead, occurredAt } = notification;
+  const flagged = type === 'SuspiciousSync' ? countFlaggedRecords(notification) : 0;
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.5 }}>
+      {/* Unread dot; keeps the space for read items so text stays aligned */}
+      <Box
+        aria-label={isRead ? undefined : 'Не прочитано'}
+        sx={{
+          flexShrink: 0,
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          bgcolor: isRead ? 'transparent' : 'primary.main',
+        }}
+      />
+
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Typography sx={{ fontWeight: isRead ? 400 : 600 }}>
+          {notificationTitles[type]}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+          {getNotificationSubject(notification)}
+          {flagged > 0 && ` · записей: ${flagged}`}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {formatUnix(occurredAt)}
+        </Typography>
+      </Box>
+
+      {/* Only unread items have the button; read ones keep the row clean */}
+      {!isRead && (
+        <Button
+          size="small"
+          sx={{ flexShrink: 0 }}
+          disabled={isMarking}
+          onClick={() => onMarkRead(notification.id)}
+        >
+          Прочитано
+        </Button>
+      )}
+    </Box>
+  );
+}
+
+/** Loads its own data: a failing notifications request must not break the whole page. */
+function NotificationsList() {
+  const { data: notifications, isLoading, error } = useNotifications();
+  const markRead = useMarkNotificationRead();
+
+  // Card gives the same rounded outlined container as the summary cards
+  return (
+    <Card variant="outlined">
+      {markRead.error && (
+        <Alert severity="error" sx={{ m: 2 }} onClose={() => markRead.reset()}>
+          {markRead.error instanceof Error
+            ? markRead.error.message
+            : 'Не удалось отметить уведомление прочитанным'}
+        </Alert>
+      )}
+      {isLoading ? (
+        <Stack sx={{ alignItems: 'center', py: 4 }}>
+          <CircularProgress size={28} />
+        </Stack>
+      ) : error || !notifications ? (
+        <Alert severity="error" sx={{ m: 2 }}>
+          {error instanceof Error ? error.message : 'Не удалось загрузить уведомления'}
+        </Alert>
+      ) : notifications.length === 0 ? (
+        <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
+          Уведомлений нет
+        </Typography>
+      ) : (
+        notifications.map((notification, index) => (
+          <Box key={notification.id}>
+            {index > 0 && <Divider />}
+            <NotificationItem
+              notification={notification}
+              isMarking={markRead.isPending && markRead.variables === notification.id}
+              onMarkRead={markRead.mutate}
+            />
+          </Box>
+        ))
+      )}
+    </Card>
+  );
+}
+
 /* ----------------------------------- Page ----------------------------------- */
 
 /**
@@ -103,8 +210,10 @@ function SummaryCard({ id, label, value, caption }: OverviewSummary) {
  * Layout:
  *   - 30px padding, 28px vertical gap
  *   - 3 × 2 grid of summary cards (28px gap)
- *   - "История учета" header row (title left, "Все записи" right)
- *   - history table via shared <DataTable />
+ *   - below: two columns side by side (2fr / 1fr), stacked on narrow screens:
+ *       left  — "История учета" header row + history table via shared <DataTable />
+ *       right — "Уведомления" list with a "Подробнее" button per item
+ *               (GET /api/notifications; "Прочитано" -> POST /api/notifications/{id}/read)
  */
 export default function OwnerOverviewPage() {
   const { data, isLoading, isError, error } = useOverview();
@@ -143,22 +252,44 @@ export default function OwnerOverviewPage() {
         ))}
       </Box>
 
-      {/* History header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="h5" component="h2">
-          История учета
-        </Typography>
-        <Button variant="text" size="large">
-          Все записи
-        </Button>
-      </Box>
+      {/* History (left, wider) + notifications (right) */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 2fr) minmax(0, 1fr)' },
+          gap: '28px',
+          alignItems: 'start',
+        }}
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '28px', minWidth: 0 }}>
+          {/* History header */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 48 }}>
+            <Typography variant="h5" component="h2">
+              История учета
+            </Typography>
+            <Button variant="text" size="large">
+              Все записи
+            </Button>
+          </Box>
 
-      {/* History table (shared DataTable) */}
-      <DataTable
-        columns={columns}
-        rows={data.history}
-        getRowId={(row) => row.id}
-      />
+          {/* History table (shared DataTable) */}
+          <DataTable
+            columns={columns}
+            rows={data.history}
+            getRowId={(row) => row.id}
+          />
+        </Box>
+
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '28px', minWidth: 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', minHeight: 48 }}>
+            <Typography variant="h5" component="h2">
+              Уведомления
+            </Typography>
+          </Box>
+
+          <NotificationsList />
+        </Box>
+      </Box>
     </Box>
   );
 }

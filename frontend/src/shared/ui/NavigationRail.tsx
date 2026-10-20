@@ -23,7 +23,7 @@ export default function NavigationRail() {
       }}
     >
       <Box sx={{ p: 2 }}>
-        <Typography variant="h6" component="div">LOGO</Typography>
+        <Typography variant="h6" component="div">Account This!</Typography>
       </Box>
 
       <Divider />

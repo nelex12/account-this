@@ -4,5 +4,6 @@ export const queryKeys = {
   company: ['company'] as const,
   overview: ['overview'] as const,
   tools: ['tools'] as const,
+  notifications: ['notifications'] as const,
   profile: ['profile'] as const
 } as const;
