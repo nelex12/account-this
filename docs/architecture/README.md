@@ -8,7 +8,7 @@
 | 1. Контекст | Кто пользуется системой и как: роли, компании, оффлайн-обмен QR, наклейки на инструментах | [1-context.mmd](1-context.mmd) · [4K](images/1-context.png) |
 | 2. Контейнеры | Из чего состоит развёртывание: браузер, nginx, backend, worker, PostgreSQL, RabbitMQ, порты, `.env` | [2-containers.mmd](2-containers.mmd) · [4K](images/2-containers.png) |
 | 3. Компоненты backend | Путь запроса: middleware → контроллер → сервис → Security → таблицы; события через outbox в RabbitMQ | [3-components.mmd](3-components.mmd) · [4K](images/3-components.png) · [8K](images/3-components-8k.png) |
-| 4. Подробная | Каждый эндпоинт (роль, коды ответа) → метод сервиса (что вызывает) → SQL-операция над таблицей, связи таблиц и view, привязка к компании | [4-detailed.mmd](4-detailed.mmd) · [4K](images/4-detailed.png) · [8K](images/4-detailed-8k.png) |
+| 4. Подробная | Каждый эндпоинт (роль, коды ответа) → метод сервиса (что вызывает) → SQL-операция над таблицей, связи таблиц и view, привязка к компании; путь события outbox → RabbitMQ (exchange, очереди) → потребители Worker → таблицы | [4-detailed.mmd](4-detailed.mmd) · [4K](images/4-detailed.png) · [8K](images/4-detailed-8k.png) |
 
 ## Обозначения
 

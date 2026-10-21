@@ -119,8 +119,9 @@ flowchart LR
         logs[("rental_logs · неизменяемый<br/>company_id · worker_id · tool_id · issuer_id<br/>(составные FK: всё из одной компании)<br/>validation_flag · signed_payload")]
         v_cur[("tool_current_holders<br/>последняя VALID по tool_id")]
         v_tools[("tools_with_holders<br/>Tool + текущий держатель")]
-        outbox[("outbox_events<br/>событие в транзакции изменения<br/>→ OutboxDispatcher → RabbitMQ")]
-        notes[("notifications<br/>пишет AccountThis.Worker")]
+        outbox[("outbox_events<br/>событие в транзакции изменения<br/>+ NOTIFY outbox_events")]
+        notes[("notifications<br/>event_id UNIQUE · type · user_id<br/>flags · read_at")]
+        audit[("audit_events<br/>event_id UNIQUE · type · actor_id<br/>occurred_at · data JSONB")]
     end
 
     S_reg -->|"INSERT"| users
@@ -152,6 +153,31 @@ flowchart LR
     S_read -->|"UPDATE read_at"| notes
     S_reg & S_login & S_refresh & S_fire & S_approve & S_tnew & S_tpatch & S_tdel & S_sync -->|"INSERT события"| outbox
 
+    Dispatcher["OutboxDispatcher · фоновая служба API<br/>LISTEN outbox_events · раз в 5 с<br/>пачки до 100 · publisher confirms"]
+
+    subgraph Rabbit["RabbitMQ"]
+        Exchange{{"exchange accountthis.events<br/>topic · routing key = тип события"}}
+        Q_audit[("очередь audit<br/>все события #")]
+        Q_notes[("очередь notifications<br/>user.registered · user.approved<br/>user.deactivated · rental.synced<br/>auth.session_reuse_detected")]
+        Dlx{{"exchange accountthis.events.dlx<br/>fanout"}}
+        Q_dead[("очередь events.dead<br/>отказы на разбор")]
+        Exchange --> Q_audit & Q_notes
+        Dlx --> Q_dead
+    end
+
+    subgraph Worker["AccountThis.Worker · отдельный процесс"]
+        C_audit["AuditConsumer<br/>ack после записи"]
+        C_notes["NotificationsConsumer<br/>ack после записи"]
+    end
+
+    outbox -->|"SELECT FOR UPDATE SKIP LOCKED<br/>DELETE после подтверждения"| Dispatcher
+    Dispatcher -->|"publish · persistent"| Exchange
+    Q_audit --> C_audit
+    Q_notes --> C_notes
+    Q_audit & Q_notes -.->|"nack без повтора"| Dlx
+    C_audit -->|"INSERT · ON CONFLICT (event_id)<br/>DO NOTHING"| audit
+    C_notes -->|"INSERT уведомления<br/>approved, deactivated: UPDATE read_at"| notes
+
     logs -.-> v_cur -.-> v_tools
     tools -.-> v_tools
     companies -.-> users & tools
@@ -166,4 +192,5 @@ flowchart LR
     class AuthN,AuthZ,Valid mw
     class E_reg,E_login,E_refresh,E_logout,E_key,E_cert,E_companies,E_me,E_users,E_fire,E_approve,E_tools,E_tnew,E_tget,E_tpatch,E_tdel,E_sync,E_logs,E_notes,E_read code
     class S_reg,S_login,S_refresh,S_logout,S_key,S_cert,S_companies,S_me,S_users,S_fire,S_approve,S_tools,S_tnew,S_tget,S_tpatch,S_tdel,S_sync,S_logs,S_notes,S_read code
-    class companies,users,rtokens,tools,logs,v_cur,v_tools,outbox,notes db
+    class Dispatcher,Exchange,Dlx,C_audit,C_notes code
+    class companies,users,rtokens,tools,logs,v_cur,v_tools,outbox,notes,audit,Q_audit,Q_notes,Q_dead db
