@@ -1,0 +1,13 @@
+// Public surface of the offline layer (protocol, crypto, storage).
+export * from './at1';
+export * from './base64url';
+export { importSigningKey, sign, verify, type SigningKey } from './ed25519';
+export * from './serverTime';
+export * from './workerSigner';
+export * from './verifyQr';
+export { getDb, closeDb, type LocalTool, type JournalEntry, type JournalStatus, type OwnOperation } from './db';
+export * from './meta';
+export * from './certs';
+export * from './registry';
+export * from './journal';
+export * from './operations';
