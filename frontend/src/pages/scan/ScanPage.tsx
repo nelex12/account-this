@@ -1,24 +1,23 @@
 // ScanPage.tsx — QR scanner for Worker and Issuer (route: /scan).
 //
 // Worker scans a TOOL sticker  -> parseToolSticker -> /operation.
-// Issuer scans a WORKER's QR   -> AT1 format check -> result dialog.
-//   (Offline verification of the signatures is the next step: plug it into `onWorkerQr`.)
+// Issuer scans a WORKER's QR   -> offline checks (offline/issuerScan.ts) -> confirm dialog
+//   -> "Подтвердить" writes the journal record + updates the local registry (works without internet).
 //
 // The camera, torch and decoding live in <QrCamera>; this page only decides
 // what a decoded text means for the current role.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
-import DialogTitle from '@mui/material/DialogTitle';
+import Snackbar from '@mui/material/Snackbar';
 import { useAuth } from '../../app/providers/AuthProvider';
 import { parseToolSticker, type ScannedTool } from '../../entities/operationModel';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../api/queryKeys';
+import { confirmOperation, DuplicateQrError } from '../../offline/journal';
+import { checkWorkerQr, type AcceptedScan } from '../../offline/issuerScan';
 import QrCamera from './QrCamera';
-import { looksLikeWorkerQr } from './workerQr';
+import WorkerQrConfirm from './WorkerQrConfirm';
 
 /** How long a "wrong QR" message stays on screen. */
 const ERROR_MS = 2500;
@@ -26,8 +25,6 @@ const ERROR_MS = 2500;
 export interface ScanPageProps {
   /** Worker: called with a parsed tool sticker. Default: go to /operation. */
   onScanned?: (tool: ScannedTool) => void;
-  /** Issuer: called with the raw worker QR string. Default: show a placeholder dialog. */
-  onWorkerQr?: (qr: string) => void;
 }
 
 function bestEffortVibrate() {
@@ -38,13 +35,37 @@ function bestEffortVibrate() {
   }
 }
 
-export default function ScanPage({ onScanned, onWorkerQr }: ScanPageProps) {
+export default function ScanPage({ onScanned }: ScanPageProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isIssuer = user?.role === 'Issuer';
 
   const [error, setError] = useState<string>();
-  const [workerQr, setWorkerQr] = useState<string>();
+  const [scan, setScan] = useState<AcceptedScan>();
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<string>();
+  const queryClient = useQueryClient();
+  const issuerId = user?.id;
+  // true while a QR is being checked: frames decoded meanwhile are ignored
+  const checking = useRef(false);
+
+  const finishIssuerScan = useCallback(() => setScan(undefined), []);
+
+  const confirm = useCallback(async () => {
+    if (!scan || !issuerId) return;
+    setBusy(true);
+    try {
+      await confirmOperation({ userId: issuerId, payload: scan.payload, scannedAt: scan.scannedAt });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.overview });
+      setSaved(`${scan.payload.operation.action === 'TAKE' ? 'Выдано' : 'Принято'}: ${scan.payload.operation.toolName}`);
+      setScan(undefined);
+    } catch (e) {
+      setScan(undefined);
+      setError(e instanceof DuplicateQrError ? 'Этот QR уже был принят' : 'Не удалось сохранить запись');
+    } finally {
+      setBusy(false);
+    }
+  }, [scan, issuerId, queryClient]);
 
   // Hide the message after a moment so the hint comes back.
   useEffect(() => {
@@ -56,14 +77,30 @@ export default function ScanPage({ onScanned, onWorkerQr }: ScanPageProps) {
   const handleDetected = useCallback(
     (text: string) => {
       if (isIssuer) {
-        if (!looksLikeWorkerQr(text)) {
-          setError('Это не QR сотрудника');
-          return;
-        }
-        setError(undefined);
-        bestEffortVibrate();
-        if (onWorkerQr) onWorkerQr(text.trim());
-        else setWorkerQr(text.trim());
+        if (!issuerId || checking.current) return;
+        checking.current = true;
+        void checkWorkerQr(text, issuerId)
+          .then((outcome) => {
+            switch (outcome.kind) {
+              case 'foreign':
+                setError('Это не QR сотрудника');
+                return;
+              case 'noKey':
+                setError('Нет ключа сервера. Один раз подключитесь к интернету');
+                return;
+              case 'rejected':
+                setError(outcome.message);
+                return;
+              case 'accepted':
+                setError(undefined);
+                bestEffortVibrate();
+                setScan(outcome);
+            }
+          })
+          .catch(() => setError('Не удалось проверить QR'))
+          .finally(() => {
+            checking.current = false;
+          });
         return;
       }
 
@@ -77,7 +114,7 @@ export default function ScanPage({ onScanned, onWorkerQr }: ScanPageProps) {
       if (onScanned) onScanned(tool);
       else navigate('/operation', { state: { tool } });
     },
-    [isIssuer, navigate, onScanned, onWorkerQr],
+    [isIssuer, issuerId, navigate, onScanned],
   );
 
   return (
@@ -92,26 +129,19 @@ export default function ScanPage({ onScanned, onWorkerQr }: ScanPageProps) {
     >
       <QrCamera
         onDetected={handleDetected}
-        paused={workerQr !== undefined}
+        paused={scan !== undefined}
         error={error}
         hint={isIssuer ? 'Наведите камеру на QR сотрудника' : 'Наведите камеру на наклейку'}
       />
 
-      {/* Placeholder until offline verification is wired in via `onWorkerQr` */}
-      <Dialog open={workerQr !== undefined} onClose={() => setWorkerQr(undefined)} fullWidth maxWidth="xs">
-        <DialogTitle>QR сотрудника считан</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Формат AT1, {workerQr?.length ?? 0} символов. Проверка подписей и выдача инструмента появятся на
-            следующем шаге.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setWorkerQr(undefined)} autoFocus>
-            Сканировать ещё
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <WorkerQrConfirm scan={scan} busy={busy} onConfirm={() => void confirm()} onDecline={finishIssuerScan} />
+      <Snackbar
+        open={saved !== undefined}
+        autoHideDuration={3000}
+        onClose={() => setSaved(undefined)}
+        message={saved}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      />
     </Box>
   );
 }

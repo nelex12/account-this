@@ -2,9 +2,8 @@
 //
 // The backend has no overview endpoint. The page is assembled from:
 //   * server journal — GET /api/logs, records of THIS issuer (issuerId === user id)
-//   * local queue    — scanned QRs not yet sent via POST /api/sync. The offline queue
-//                      does not exist in the app yet, so it is always empty here
-//                      (pendingCount = 0). See `readLocalQueueSize`.
+//   * local journal  — QRs confirmed on this device (IndexedDB), not yet sent via POST /api/sync.
+//                      Shown first as 'pending'. Sending itself is the next step (see `syncNow`).
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../app/providers/AuthProvider';
 import type {
@@ -16,6 +15,10 @@ import type {
 import { ApiError } from './auth';
 import { apiFetch } from './http';
 import { queryKeys } from './queryKeys';
+import { countByStatus, listByStatus } from '../offline/journal';
+import { getMeta } from '../offline/meta';
+import type { JournalEntry } from '../offline/db';
+import { parseAt1 } from '../offline/at1';
 
 /* ---------------------------------- Types ----------------------------------- */
 
@@ -60,31 +63,61 @@ function startOfTodaySeconds(): number {
   return Math.floor(d.getTime() / 1000);
 }
 
-/** Records scanned on this device and not sent yet. No offline queue yet -> 0. */
-function readLocalQueueSize(): number {
-  return 0;
+/** A journal record that is still on this device, shown as a history row. */
+function localItem(entry: JournalEntry): IssuerHistoryItem | null {
+  const parsed = parseAt1(entry.qr);
+  if (!parsed.ok) return null;
+  const { operation, tokenData } = parsed.payload;
+  return {
+    id: `local-${entry.id}`,
+    time: operation.timestamp,
+    action: operation.action,
+    toolName: operation.toolName,
+    workerName: tokenData.fio,
+    toolCondition: operation.toolCondition,
+    sync: 'pending',
+  };
+}
+
+/** What this device holds for the issuer (works offline). */
+async function readLocal(issuerId: string): Promise<{ pending: IssuerHistoryItem[]; lastSyncAt: number | null }> {
+  const entries = await listByStatus(issuerId, 'pending');
+  const lastSync = (await getMeta('lastSyncAt'))?.[issuerId];
+  return {
+    pending: entries.map(localItem).filter((i): i is IssuerHistoryItem => i !== null).reverse(),
+    lastSyncAt: typeof lastSync === 'number' ? lastSync : null,
+  };
 }
 
 /* ------------------------------- Raw functions ------------------------------ */
 
 /** GET /api/logs (newest first) narrowed to the records this issuer synced. */
 export async function getIssuerOverview(issuerId: string): Promise<IssuerOverviewData> {
-  const response = await apiFetch('/api/logs');
-  if (!response.ok) {
-    throw new ApiError(`Не удалось загрузить журнал (${response.status})`, response.status);
+  const local = await readLocal(issuerId);
+  const counts = await countByStatus(issuerId);
+  let own: RentalLogEntry[] = [];
+  try {
+    const response = await apiFetch('/api/logs');
+    if (!response.ok) {
+      throw new ApiError(`Не удалось загрузить журнал (${response.status})`, response.status);
+    }
+    own = ((await response.json()) as RentalLogEntry[]).filter((e) => e.issuerId === issuerId);
+  } catch (e) {
+    // Offline: show what is on the device. With nothing local either, the error is real.
+    if (counts.pending + counts.sent === 0 && local.lastSyncAt === null) throw e;
   }
-  const own = ((await response.json()) as RentalLogEntry[]).filter((e) => e.issuerId === issuerId);
 
   const today = startOfTodaySeconds();
   const todays = own.filter((e) => e.qrTimestamp >= today);
+  const localToday = local.pending.filter((i) => i.time >= today);
 
   return {
     // createdAt = when the record reached the server = the issuer's last sync
-    lastSyncAt: own.length ? Math.max(...own.map((e) => e.createdAt)) : null,
-    pendingCount: readLocalQueueSize(),
-    issuedToday: todays.filter((e) => e.action === 'TAKE').length,
-    acceptedToday: todays.filter((e) => e.action === 'GIVE').length,
-    history: own.slice(0, HISTORY_LIMIT).map((e) => ({
+    lastSyncAt: own.length ? Math.max(...own.map((e) => e.createdAt)) : local.lastSyncAt,
+    pendingCount: counts.pending,
+    issuedToday: todays.filter((e) => e.action === 'TAKE').length + localToday.filter((i) => i.action === 'TAKE').length,
+    acceptedToday: todays.filter((e) => e.action === 'GIVE').length + localToday.filter((i) => i.action === 'GIVE').length,
+    history: [...local.pending, ...own.map((e): IssuerHistoryItem => ({
       id: String(e.id),
       time: e.qrTimestamp,
       action: e.action,
@@ -92,7 +125,7 @@ export async function getIssuerOverview(issuerId: string): Promise<IssuerOvervie
       workerName: e.workerName,
       toolCondition: e.toolCondition,
       sync: e.validationFlag,
-    })),
+    }))].slice(0, HISTORY_LIMIT),
   };
 }
 
@@ -119,6 +152,8 @@ export function useIssuerOverview() {
       return getIssuerOverview(user.id);
     },
     enabled: Boolean(user),
+    // the journal lives in IndexedDB: it must load without a network
+    networkMode: 'always',
   });
 }
 

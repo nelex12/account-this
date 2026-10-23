@@ -26,6 +26,7 @@ import ProfilePage from '../../pages/profile/ProfilePage';
 import ScanPage from '../../pages/scan/ScanPage';
 import OperationPage from '../../pages/operation/OperationPage';
 import QrPage from '../../pages/qr/QrPage';
+import { IssuerOfflineProvider } from '../providers/IssuerOfflineProvider';
 
 export type Role = 'Owner' | 'Issuer' | 'Worker';
 
@@ -87,7 +88,9 @@ function LayoutByRole() {
       return (
         <AddToolDialogProvider>
           <StickersDialogProvider>
-            <MobileLayout />
+            <IssuerOfflineProvider>
+              <MobileLayout />
+            </IssuerOfflineProvider>
           </StickersDialogProvider>
         </AddToolDialogProvider>
       );

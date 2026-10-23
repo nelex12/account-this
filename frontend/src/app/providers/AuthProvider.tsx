@@ -21,6 +21,7 @@ import { registerAuthBridge } from '../../api/authBridge';
 import { apiFetch } from '../../api/http';
 import { isRole, type AuthUser, type Role } from '../../entities/authModel';
 import { deleteCertificate } from '../../offline/certs';
+import { clearRegistry } from '../../offline/registry';
 
 // Re-exported so existing `import { Role } from '.../AuthProvider'` keeps working.
 export type { AuthUser, Role };
@@ -248,6 +249,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Forget the access token and the cache regardless of network result.
       clearSession();
       if (userId) void deleteCertificate(userId).catch(() => {});
+      // The registry is a copy of the company's tools: do not leave it for the next person on the device.
+      // The journal stays: unsent records must survive a logout.
+      void clearRegistry().catch(() => {});
     }
   }, [clearSession]);
 

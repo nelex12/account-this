@@ -13,3 +13,5 @@ export * from './journal';
 export * from './operations';
 export * from './certificateService';
 export * from './qrValidity';
+export * from './issuerScan';
+export * from './issuerDataService';

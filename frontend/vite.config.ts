@@ -25,6 +25,7 @@ export default defineConfig({
     })
   ],
   server: {
+    allowedHosts: true,
     host: true, // <-- ДОБАВЬ ЭТУ СТРОКУ (слушать 0.0.0.0 вместо localhost)
     proxy: {
       '/api': 'http://localhost:5000'
