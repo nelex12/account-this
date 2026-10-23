@@ -2,6 +2,7 @@
 // Tool card, "take / return" choice, tool condition, button "Создать qr-код".
 //
 // The tool comes from the scan page via router state: navigate('/operation', { state: { tool } }).
+// A held tool on the overview passes { tool, action: 'GIVE' } so "Возвращаю" is already selected.
 // Top bar ("Операция" + back) comes from the route's `handle.topBar` + SimpleLayout.
 import { useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -94,9 +95,10 @@ export interface OperationPageProps {
 export default function OperationPage({ tool: toolProp, onCreateQr }: OperationPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const tool = toolProp ?? (location.state as { tool?: ScannedTool } | null)?.tool;
+  const routeState = location.state as { tool?: ScannedTool; action?: RentalAction } | null;
+  const tool = toolProp ?? routeState?.tool;
 
-  const [action, setAction] = useState<RentalAction>('TAKE');
+  const [action, setAction] = useState<RentalAction>(routeState?.action ?? 'TAKE');
   const [toolCondition, setToolCondition] = useState<ApiToolCondition>('Good');
 
   // Opened directly (reload / deep link): there is no scanned tool, start over.
@@ -105,7 +107,7 @@ export default function OperationPage({ tool: toolProp, onCreateQr }: OperationP
   const submit = () => {
     const choice: OperationChoice = { tool, action, toolCondition };
     if (onCreateQr) onCreateQr(choice);
-    else navigate('/qr', { state: { choice } }); // TODO: QR page is not designed/implemented yet
+    else navigate('/qr', { state: { choice } });
   };
 
   return (

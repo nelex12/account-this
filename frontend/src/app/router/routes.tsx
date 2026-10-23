@@ -8,6 +8,7 @@ import type { TopAppBarAction } from '../../shared/ui/TopAppBar';
 import { useAuth } from '../providers/AuthProvider';
 import { AddToolDialogProvider } from '../providers/AddToolDialogProvider';
 import { StickersDialogProvider } from '../providers/StickersDialogProvider';
+import { WorkerCertificateProvider } from '../providers/WorkerCertificateProvider';
 import RoleGuard from './RoleGuard';
 import DesktopLayout from './layouts/DesktopLayout';
 import MobileLayout from './layouts/MobileLayout';
@@ -24,6 +25,7 @@ import UsersPage from '../../pages/users/UsersPage';
 import ProfilePage from '../../pages/profile/ProfilePage';
 import ScanPage from '../../pages/scan/ScanPage';
 import OperationPage from '../../pages/operation/OperationPage';
+import QrPage from '../../pages/qr/QrPage';
 
 export type Role = 'Owner' | 'Issuer' | 'Worker';
 
@@ -90,7 +92,11 @@ function LayoutByRole() {
         </AddToolDialogProvider>
       );
     case 'Worker':
-      return <SimpleLayout />;
+      return (
+        <WorkerCertificateProvider>
+          <SimpleLayout />
+        </WorkerCertificateProvider>
+      );
   }
 }
 
@@ -168,6 +174,11 @@ export const router = createBrowserRouter([
                 path: '/operation',
                 element: <OperationPage />,
                 handle: { topBar: { title: 'Операция' } } satisfies RouteHandle,
+              },
+              {
+                path: '/qr',
+                element: <QrPage />,
+                handle: { topBar: { title: 'QR-код' } } satisfies RouteHandle,
               },
             ],
           },

@@ -20,6 +20,7 @@ import {
 import { registerAuthBridge } from '../../api/authBridge';
 import { apiFetch } from '../../api/http';
 import { isRole, type AuthUser, type Role } from '../../entities/authModel';
+import { deleteCertificate } from '../../offline/certs';
 
 // Re-exported so existing `import { Role } from '.../AuthProvider'` keeps working.
 export type { AuthUser, Role };
@@ -239,11 +240,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    // an explicit sign-out also removes the worker's offline signing key from this device
+    const userId = sessionRef.current ? decodeToken(sessionRef.current.token)?.id : undefined;
     try {
       await logoutRequest();
     } finally {
       // Forget the access token and the cache regardless of network result.
       clearSession();
+      if (userId) void deleteCertificate(userId).catch(() => {});
     }
   }, [clearSession]);
 

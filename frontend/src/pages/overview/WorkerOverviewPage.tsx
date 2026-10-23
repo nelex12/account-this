@@ -8,20 +8,21 @@
 import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Alert from '@mui/material/Alert';
 import Card from '@mui/material/Card';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { QrCodeScannerIcon } from '../../shared/Icons';
 import { useAuth } from '../../app/providers/AuthProvider';
 import { useProfile } from '../../api';
+import { useHeldTools } from '../../api/heldTools';
+import { useWorkerCertificate, type CertificateView } from '../../app/providers/WorkerCertificateProvider';
+import { formatUnix } from '../../entities/toolsModel';
 import HeldToolCard, { type HeldToolCardProps } from './HeldToolCard';
 
 /* ----------------------------------- Data ----------------------------------- */
 
 type HeldTool = HeldToolCardProps['tool'];
-
-/** Placeholder until there is an API for "tools on hand of the current worker". */
-const defaultTools: HeldTool[] = [{ id: '2', name: 'Перфоратор Bosch GBH 2-26', number: '№ 0142' }];
 
 const howToSteps = [
   'Отсканируйте QR-наклейку на инструменте.',
@@ -29,14 +30,52 @@ const howToSteps = [
   'Покажите QR-код на экране заведующему.',
 ];
 
+/* -------------------------------- Certificate -------------------------------- */
+
+/** "18:42", or "22.10.2026 18:42" when it is not today. */
+function formatExpiry(unixSeconds: number): string {
+  const d = new Date(unixSeconds * 1000);
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? time : `${formatUnix(unixSeconds)}`;
+}
+
+function CertificateCard({ view, onRetry }: { view: CertificateView; onRetry: () => void }) {
+  switch (view.status) {
+    case 'loading':
+      return (
+        <Card variant="outlined" sx={{ p: 2.5 }}>
+          <Typography variant="subtitle1">Проверка сертификата…</Typography>
+        </Card>
+      );
+    case 'ready':
+      return (
+        <Card variant="outlined" sx={{ p: 2.5 }}>
+          <Typography variant="subtitle1">QR-коды без интернета: можно до {formatExpiry(view.cert.expiresAt)}</Typography>
+        </Card>
+      );
+    case 'missing':
+      return (
+        <Alert severity="warning" action={<Button color="inherit" size="small" onClick={onRetry}>Повторить</Button>}>
+          Нет сертификата. Подключитесь к интернету, чтобы работать без сети.
+        </Alert>
+      );
+    case 'forbidden':
+      return <Alert severity="error">Доступ закрыт: {view.message}</Alert>;
+    case 'error':
+      return (
+        <Alert severity="warning" action={<Button color="inherit" size="small" onClick={onRetry}>Повторить</Button>}>
+          {view.message}
+        </Alert>
+      );
+  }
+}
+
 /* ----------------------------------- Page ----------------------------------- */
 
 export interface WorkerOverviewPageProps {
   /** Overrides the signed-in user's name. */
   workerName?: string;
-  /** Text of the sync card, e.g. "Последняя синхронизация была 2 часа назад". */
-  lastSyncText?: string;
-  /** Tools the worker currently holds. Defaults to the built-in placeholder. */
+  /** Tools the worker currently holds. Defaults to the ones this device signed and the worker confirmed. */
   tools?: HeldTool[];
   /** Opens the QR scanner. Defaults to navigating to /scan. */
   onScan?: () => void;
@@ -46,8 +85,7 @@ export interface WorkerOverviewPageProps {
 
 export default function WorkerOverviewPage({
   workerName,
-  lastSyncText = 'Последняя синхронизация была 2 часа назад',
-  tools = defaultTools,
+  tools: toolsProp,
   onScan,
   onToolClick,
 }: WorkerOverviewPageProps) {
@@ -57,6 +95,16 @@ export default function WorkerOverviewPage({
   // (same cached query as the profile page).
   const { data: profile } = useProfile();
   const name = workerName ?? user?.fullName ?? profile?.fullName ?? '';
+
+  const { view, ensure } = useWorkerCertificate();
+  const held = useHeldTools();
+  const tools: HeldTool[] =
+    toolsProp ??
+    (held.data ?? []).map((t) => ({ id: t.toolId, name: t.toolName, number: `Взят ${formatUnix(t.since)}` }));
+  // tapping a held tool = return it: the QR flow starts with "Возвращаю" selected
+  const openTool =
+    onToolClick ??
+    ((tool: HeldTool) => navigate('/operation', { state: { tool: { id: tool.id, name: tool.name }, action: 'GIVE' } }));
 
   return (
     <Stack spacing={2} sx={{ p: 2.5, pb: 4, width: '100%', maxWidth: 560, mx: 'auto' }}>
@@ -72,10 +120,8 @@ export default function WorkerOverviewPage({
         )}
       </Box>
 
-      {/* Sync state */}
-      <Card variant="outlined" sx={{ p: 2.5 }}>
-        <Typography variant="subtitle1">{lastSyncText}</Typography>
-      </Card>
+      {/* Offline readiness: the certificate lets the worker make QR codes without internet */}
+      <CertificateCard view={view} onRetry={() => void ensure(true)} />
 
       {/* Main action */}
       <Button
@@ -96,7 +142,7 @@ export default function WorkerOverviewPage({
       {tools.length > 0 ? (
         <Stack spacing={1.5}>
           {tools.map((tool) => (
-            <HeldToolCard key={tool.id} tool={tool} onClick={onToolClick} />
+            <HeldToolCard key={tool.id} tool={tool} onClick={openTool} />
           ))}
         </Stack>
       ) : (

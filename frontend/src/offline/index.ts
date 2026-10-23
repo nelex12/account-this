@@ -11,3 +11,5 @@ export * from './certs';
 export * from './registry';
 export * from './journal';
 export * from './operations';
+export * from './certificateService';
+export * from './qrValidity';
