@@ -1,4 +1,5 @@
 // ProfilePage.tsx
+import InstallAppCard from '../../shared/pwa/InstallAppCard';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Avatar from '@mui/material/Avatar';
@@ -122,6 +123,8 @@ export default function ProfilePage() {
 
           {/* Actions */}
           <Stack spacing={1.5}>
+            <InstallAppCard />
+
             {/* The API has no change-password endpoint yet */}
             <Button variant="outlined" size="large" fullWidth disabled>
               Изменить пароль

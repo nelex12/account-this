@@ -6,7 +6,12 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // "prompt": a new version waits until the user taps "Обновить" (see src/shared/pwa/PwaStatus.tsx).
+      // An automatic reload could interrupt a scan or a QR on screen.
+      registerType: 'prompt',
+      // registration is done by the app (virtual:pwa-register/react), not by an injected script
+      injectRegister: false,
+      includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],
       workbox: {
         // wasm = QR decoder fallback (zxing); precached so the scanner works offline
         globPatterns: ['**/*.{js,css,html,svg,ico,png,woff,woff2,wasm}'],
@@ -18,16 +23,27 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
       },
       devOptions: {
-        enabled: true
+        enabled: true,
       },
+      // The only manifest of the app (generated as /manifest.webmanifest and linked from index.html)
       manifest: {
+        id: '/',
         name: 'Account This!',
         short_name: 'AT!',
-        theme_color: '#ffa500',
+        description: 'Учёт выдачи и возврата инструмента по QR-кодам, работает без интернета',
+        lang: 'ru',
+        start_url: '/',
+        scope: '/',
         display: 'standalone',
-        icons: []
-      }
-    })
+        background_color: '#F2F2F2',
+        theme_color: '#FFA500',
+        icons: [
+          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      },
+    }),
   ],
   server: {
     host: true, // <-- ДОБАВЬ ЭТУ СТРОКУ (слушать 0.0.0.0 вместо localhost)

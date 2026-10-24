@@ -1,4 +1,5 @@
 // TopAppBar.tsx
+import { useOnlineStatus } from '../useOnlineStatus';
 import type { ReactNode } from 'react';
 import { useMediaQuery, useTheme } from '@mui/material';
 import AppBar from '@mui/material/AppBar';
@@ -57,6 +58,7 @@ export default function TopAppBar({
 }: TopAppBarDesktopProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const online = useOnlineStatus();
 
   const hasDesktopActions = !isMobile && Boolean(secondaryAction || primaryAction);
   const hasStatus = Boolean(statusLabel);
@@ -130,7 +132,8 @@ export default function TopAppBar({
             )}
 
             {hasStatus && (
-              <Chip color="success" label={statusLabel} />
+              // the label comes from the route ("В сети"); the real connection state overrides it
+              <Chip color={online ? 'success' : 'warning'} label={online ? statusLabel : 'Нет сети'} />
             )}
 
             {trailing}

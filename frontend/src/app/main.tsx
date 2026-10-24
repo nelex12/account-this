@@ -8,6 +8,7 @@ import CssBaseline from '@mui/material/CssBaseline';
 import ThemeProvider from './providers/ThemeProvider';
 import { AuthProvider } from './providers/AuthProvider';
 import { router } from './router/routes';
+import PwaStatus from '../shared/pwa/PwaStatus';
 
 const queryClient = new QueryClient();
 
@@ -18,6 +19,7 @@ createRoot(document.getElementById('root')!).render(
         <CssBaseline />
         <AuthProvider>
           <RouterProvider router={router} />
+          <PwaStatus />
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
