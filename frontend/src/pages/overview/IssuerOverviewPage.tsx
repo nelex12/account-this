@@ -145,7 +145,7 @@ export default function IssuerOverviewPage({ onScan }: IssuerOverviewPageProps) 
     );
   }
 
-  const { lastSyncAt, pendingCount, issuedToday, acceptedToday, history } = data;
+  const { lastSyncAt, pendingCount, quarantinedCount, issuedToday, acceptedToday, history } = data;
   const syncTitle = lastSyncAt
     ? `Последняя синхронизация ${relativeTime(lastSyncAt)}`
     : 'Синхронизации ещё не было';
@@ -181,6 +181,19 @@ export default function IssuerOverviewPage({ onScan }: IssuerOverviewPageProps) 
           )}
           {sync.isError && (
             <Alert severity="error">Не удалось синхронизировать. Попробуйте ещё раз.</Alert>
+          )}
+          {sync.isSuccess && pendingCount === 0 && sync.data.sent > 0 && (
+            <Alert severity={Object.keys(sync.data.flagged).length > 0 ? 'warning' : 'success'}>
+              Отправлено записей: {sync.data.sent}
+              {Object.keys(sync.data.flagged).length > 0 &&
+                `. Сервер отметил замечаниями: ${Object.values(sync.data.flagged).reduce((a, b) => a + b, 0)} (см. историю)`}
+            </Alert>
+          )}
+          {quarantinedCount > 0 && (
+            <Alert severity="warning">
+              Записей отложено из-за неверного формата QR: {quarantinedCount}. Они хранятся на устройстве и не
+              отправляются.
+            </Alert>
           )}
 
           {pendingCount > 0 && (

@@ -62,7 +62,16 @@ export interface MetaValues {
   serverKey: { publicKey: string; fetchedAt: number };
   clock: { offsetMs: number; measuredAt: number };
   /** Who was signed in last: lets the app open offline (no secrets here) */
-  identity: { userId: string; role: 'Owner' | 'Issuer' | 'Worker'; fullName: string; savedAt: number };
+  identity: {
+    userId: string;
+    role: 'Owner' | 'Issuer' | 'Worker';
+    fullName: string;
+    /** Added later: older records have none */
+    companyId?: string;
+    savedAt: number;
+  };
+  /** The user pressed "logout" with no network: the server-side session (refresh cookie) is still alive */
+  pendingLogout: true;
   /** Whose company the `tools` store belongs to */
   registry: { ownerUserId: string; fetchedAt: number };
   /** Unix seconds of the last successful POST /api/sync, per issuer id */

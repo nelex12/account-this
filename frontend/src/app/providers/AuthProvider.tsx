@@ -21,6 +21,14 @@ import { registerAuthBridge } from '../../api/authBridge';
 import { apiFetch } from '../../api/http';
 import { isRole, type AuthUser, type Role } from '../../entities/authModel';
 import { deleteCertificate } from '../../offline/certs';
+import {
+  clearIdentity,
+  clearPendingLogout,
+  hasPendingLogout,
+  loadIdentity,
+  markPendingLogout,
+  saveIdentity,
+} from '../../offline/identity';
 import { clearRegistry } from '../../offline/registry';
 
 // Re-exported so existing `import { Role } from '.../AuthProvider'` keeps working.
@@ -34,6 +42,11 @@ interface AuthContextValue {
   token: string | null;
   /** true once we've tried to restore the session (from the refresh cookie). */
   isInitialized: boolean;
+  /**
+   * true while the app runs on the identity remembered on this device (no server session yet:
+   * it was started without a network). Offline features work; server requests wait for a session.
+   */
+  isOfflineSession: boolean;
   login: (phone: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -85,6 +98,11 @@ interface SessionState {
 }
 
 const REFRESH_LEAD_MS = 60_000; // refresh 1 minute before expiry
+/** With a remembered identity, how long the start waits for the server before opening offline. */
+const OFFLINE_START_WAIT_MS = 3_000;
+
+/** How the last refresh ended: 'denied' = the server said the session is over (401/403). */
+type RefreshOutcome = 'ok' | 'denied' | 'network';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -95,6 +113,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const [session, setSession] = useState<SessionState | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  // Remembered identity, used only while there is no server session (started offline).
+  const [offlineUser, setOfflineUser] = useState<AuthUser | null>(null);
+  const offlineUserRef = useRef<AuthUser | null>(null);
+  const refreshOutcomeRef = useRef<RefreshOutcome | undefined>(undefined);
 
   // The ref is the source of truth for the auth bridge. It is written
   // SYNCHRONOUSLY together with the state (see `commitSession`), never from an
@@ -113,18 +135,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /** Drop the session AND everything cached for the previous user. */
   const clearSession = useCallback(() => {
     commitSession(null);
+    offlineUserRef.current = null;
+    setOfflineUser(null);
     queryClient.clear();
+    void clearIdentity().catch(() => {});
   }, [commitSession, queryClient]);
 
   const user = useMemo<AuthUser | null>(
-    () => (session ? decodeToken(session.token) : null),
-    [session],
+    () => (session ? decodeToken(session.token) : offlineUser),
+    [session, offlineUser],
   );
 
   /** Returns false when the token is unusable (no/unknown role, bad format). */
   const applySession = useCallback(
     (s: AuthSession): boolean => {
-      if (!decodeToken(s.accessToken)) return false;
+      const decoded = decodeToken(s.accessToken);
+      if (!decoded) return false;
+      offlineUserRef.current = null;
+      setOfflineUser(null);
+      void saveIdentity(decoded).catch(() => {});
       commitSession({
         token: s.accessToken,
         expiresAt: Date.now() + s.expiresIn * 1000,
@@ -144,12 +173,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const next = await refreshRequest();
         if (!next || !applySession(next)) {
+          refreshOutcomeRef.current = 'denied';
           clearSession();
           return null;
         }
+        refreshOutcomeRef.current = 'ok';
         return next.accessToken;
       } catch {
         // Network / 5xx: keep whatever we have, the caller decides what to do.
+        refreshOutcomeRef.current = 'network';
         return null;
       } finally {
         refreshPromiseRef.current = null;
@@ -165,7 +197,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     registerAuthBridge({
       getToken: () => sessionRef.current?.token ?? null,
       refresh: doRefresh,
-      signOut: clearSession,
+      // A request got 401 and the refresh then failed for lack of network: that is NOT the end of
+      // the session. Signing out here would throw away the remembered identity in the middle of
+      // offline work.
+      signOut: () => {
+        if (refreshOutcomeRef.current === 'network') return;
+        clearSession();
+      },
     });
   }, [doRefresh, clearSession]);
 
@@ -196,13 +234,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [doRefresh]);
 
-  /* 1. Restore session on first mount using the refresh cookie. */
+  /* If "logout" was pressed offline, tell the server as soon as it can hear us: otherwise the refresh
+     cookie would sign the same person in again at the next start. Returns true when it is settled. */
+  const flushPendingLogout = useCallback(async (): Promise<boolean> => {
+    try {
+      if (!(await hasPendingLogout())) return true;
+      await logoutRequest();
+      await clearPendingLogout();
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  /* 1. Restore session on first mount using the refresh cookie.
+        Started with no network: open on the remembered identity (Worker/Issuer), see offline/identity.ts. */
   useEffect(() => {
     let cancelled = false;
 
-    void doRefresh().then(() => {
-      if (!cancelled) setIsInitialized(true);
-    });
+    void (async () => {
+      if (!(await flushPendingLogout())) {
+        // signed out on this device and the server cannot be told yet: stay signed out
+        if (!cancelled) setIsInitialized(true);
+        return;
+      }
+      const identity = await loadIdentity().catch(() => null);
+      const refreshing = doRefresh();
+      if (identity) {
+        await Promise.race([refreshing, new Promise((r) => setTimeout(r, OFFLINE_START_WAIT_MS))]);
+      } else {
+        await refreshing;
+      }
+      if (cancelled) return;
+      if (identity && !sessionRef.current && refreshOutcomeRef.current !== 'denied') {
+        offlineUserRef.current = identity;
+        setOfflineUser(identity);
+      }
+      setIsInitialized(true);
+    })();
 
     return () => {
       cancelled = true;
@@ -210,6 +279,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Intentionally run once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* The connection is back: finish a logout done offline, and turn the remembered identity (or an
+     expired token) into a real session. */
+  useEffect(() => {
+    const onOnline = () => {
+      void (async () => {
+        if (!(await flushPendingLogout())) return;
+        const expired = sessionRef.current && sessionRef.current.expiresAt < Date.now() + REFRESH_LEAD_MS;
+        if (offlineUserRef.current || expired) await doRefresh();
+      })();
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [doRefresh, flushPendingLogout]);
 
   /* 2. Proactively refresh shortly before the access token expires. */
   useEffect(() => {
@@ -233,6 +316,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const next = await loginRequest({ phone, password });
       // Never mix the previous user's cache with the new session.
       queryClient.clear();
+      void clearPendingLogout().catch(() => {});
       if (!applySession(next)) {
         throw new Error('Сервер вернул некорректный токен');
       }
@@ -242,9 +326,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     // an explicit sign-out also removes the worker's offline signing key from this device
-    const userId = sessionRef.current ? decodeToken(sessionRef.current.token)?.id : undefined;
+    const userId =
+      (sessionRef.current ? decodeToken(sessionRef.current.token)?.id : undefined) ?? offlineUserRef.current?.id;
     try {
       await logoutRequest();
+    } catch {
+      // No network: sign out here anyway, and tell the server later (flushPendingLogout).
+      await markPendingLogout().catch(() => {});
     } finally {
       // Forget the access token and the cache regardless of network result.
       clearSession();
@@ -260,10 +348,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       token: session?.token ?? null,
       isInitialized,
+      isOfflineSession: session === null && offlineUser !== null,
       login,
       logout,
     }),
-    [user, session, isInitialized, login, logout],
+    [user, session, offlineUser, isInitialized, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

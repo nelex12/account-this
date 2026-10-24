@@ -15,3 +15,7 @@ export * from './certificateService';
 export * from './qrValidity';
 export * from './issuerScan';
 export * from './issuerDataService';
+export * from './syncService';
+export * from './identity';
+export * from './lock';
+export * from './events';

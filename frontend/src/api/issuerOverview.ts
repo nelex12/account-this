@@ -3,9 +3,10 @@
 // The backend has no overview endpoint. The page is assembled from:
 //   * server journal — GET /api/logs, records of THIS issuer (issuerId === user id)
 //   * local journal  — QRs confirmed on this device (IndexedDB), not yet sent via POST /api/sync.
-//                      Shown first as 'pending'. Sending itself is the next step (see `syncNow`).
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+//                      Shown first as 'pending'. They are sent by the IssuerOfflineProvider / useSyncNow.
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useAuth } from '../app/providers/AuthProvider';
+import { useIssuerOffline } from '../app/providers/IssuerOfflineProvider';
 import type {
   RentalAction,
   RentalLogEntry,
@@ -45,6 +46,8 @@ export interface IssuerOverviewData {
   lastSyncAt: number | null;
   /** Records waiting in the local queue */
   pendingCount: number;
+  /** Records set aside because the server rejected their format; kept on the device */
+  quarantinedCount: number;
   /** TAKE records of today */
   issuedToday: number;
   /** GIVE records of today */
@@ -115,6 +118,7 @@ export async function getIssuerOverview(issuerId: string): Promise<IssuerOvervie
     // createdAt = when the record reached the server = the issuer's last sync
     lastSyncAt: own.length ? Math.max(...own.map((e) => e.createdAt)) : local.lastSyncAt,
     pendingCount: counts.pending,
+    quarantinedCount: counts.quarantined,
     issuedToday: todays.filter((e) => e.action === 'TAKE').length + localToday.filter((i) => i.action === 'TAKE').length,
     acceptedToday: todays.filter((e) => e.action === 'GIVE').length + localToday.filter((i) => i.action === 'GIVE').length,
     history: [...local.pending, ...own.map((e): IssuerHistoryItem => ({
@@ -127,16 +131,6 @@ export async function getIssuerOverview(issuerId: string): Promise<IssuerOvervie
       sync: e.validationFlag,
     }))].slice(0, HISTORY_LIMIT),
   };
-}
-
-/**
- * "Send now". With no local queue there is nothing to POST to /api/sync, so this
- * only lets the hook below re-read the journal. When the queue appears: send
- * [{ qr, scannedAt }, ...], store each SyncResult.validationFlag (a 400 lists bad
- * records as "[n].qr": set those aside and resend the rest, see api.yaml).
- */
-export async function syncNow(): Promise<void> {
-  return;
 }
 
 /* ---------------------------------- Hooks ----------------------------------- */
@@ -157,10 +151,8 @@ export function useIssuerOverview() {
   });
 }
 
+/** "Отправить сейчас": sends the pending records (api/sync.ts) and refreshes the page data. */
 export function useSyncNow() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: syncNow,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: key }),
-  });
+  const { syncNow } = useIssuerOffline();
+  return useMutation({ mutationFn: syncNow });
 }

@@ -14,6 +14,7 @@ import { useAuth } from '../../app/providers/AuthProvider';
 import { parseToolSticker, type ScannedTool } from '../../entities/operationModel';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../api/queryKeys';
+import { notifyJournalChanged } from '../../offline/events';
 import { confirmOperation, DuplicateQrError } from '../../offline/journal';
 import { checkWorkerQr, type AcceptedScan } from '../../offline/issuerScan';
 import QrCamera from './QrCamera';
@@ -57,6 +58,7 @@ export default function ScanPage({ onScanned }: ScanPageProps) {
     try {
       await confirmOperation({ userId: issuerId, payload: scan.payload, scannedAt: scan.scannedAt });
       void queryClient.invalidateQueries({ queryKey: queryKeys.overview });
+      notifyJournalChanged(); // the provider sends it right away when there is a network
       setSaved(`${scan.payload.operation.action === 'TAKE' ? 'Выдано' : 'Принято'}: ${scan.payload.operation.toolName}`);
       setScan(undefined);
     } catch (e) {

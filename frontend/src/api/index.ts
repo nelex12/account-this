@@ -9,3 +9,4 @@ export * from './profile';
 export * from './auth';
 export * from './http';
 export * from './issuerOverview';
+export * from './sync';
