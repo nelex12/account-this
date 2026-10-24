@@ -1,0 +1,54 @@
+# Настройки для сервера: накладываются поверх docker-compose.yml.
+# Образы собираются на компьютере разработчика, а не на сервере (там мало памяти и не нужен SDK).
+# На сервер копируются только оба compose-файла, deploy/ и .env; образы — через docker save / docker load.
+# Сборка:  docker compose -f docker-compose.yml -f docker-compose.prod.yml build
+# Запуск на сервере:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
+#
+# Отличия от локального запуска:
+# - наружу открыт только Caddy (80 и 443): он получает сертификат Let's Encrypt для DOMAIN из .env
+#   и передаёт запросы в nginx. HTTPS нужен браузеру для камеры и установки PWA;
+# - порты базы, RabbitMQ и backend закрыты: сервисы общаются только внутри сети compose.
+#   Docker открывает опубликованные порты в обход ufw, поэтому закрывать их нужно здесь, а не в файрволе.
+# !reset убирает список ports из docker-compose.yml (без него списки бы сложились)
+
+services:
+  postgres:
+    ports: !reset []
+
+  rabbitmq:
+    ports: !reset []
+
+  # Постоянные имена образов: под ними образы собираются локально и под ними же их ищет compose на сервере
+  backend:
+    image: accountthis-backend:latest
+    ports: !reset []
+
+  worker:
+    image: accountthis-worker:latest
+
+  nginx:
+    image: accountthis-nginx:latest
+    ports: !reset []
+
+  caddy:
+    image: caddy:2
+    container_name: accountthis-caddy
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Сертификаты: без тома Caddy запрашивал бы их заново при каждом пересоздании контейнера
+      # и упёрся бы в лимиты Let's Encrypt
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,6 @@
+# Caddy принимает HTTPS, сам получает и продлевает сертификат Let's Encrypt
+# и перенаправляет http:// на https://. Всё остальное (статика, /api/) делает nginx
+{$DOMAIN}, www.{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy nginx:80
+}
