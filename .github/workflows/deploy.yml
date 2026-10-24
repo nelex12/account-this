@@ -1,0 +1,194 @@
+# Проверка и деплой на сервер после push в main.
+#
+# 1. changes  — по списку изменённых файлов решает, что проверять и какие образы пересобирать.
+# 2. test-*   — сборка и тесты только изменившейся части (бэкенд: dotnet test, фронтенд: tsc + vite build + vitest).
+# 3. deploy   — если проверки прошли: собирает только изменившиеся образы, передаёт их на сервер
+#               через docker save / docker load (без реестра образов) и перезапускает только их.
+#
+# На сервере собирать нельзя: там мало памяти и не нужен SDK (см. docker-compose.prod.yml).
+# Нужен секрет репозитория SSH_PRIVATE_KEY — приватный ключ, публичная часть которого есть
+# в /root/.ssh/authorized_keys на сервере. Ручной запуск (Actions → Run workflow) пересобирает всё.
+
+name: Проверка и деплой
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Два деплоя одновременно не идут: следующий ждёт окончания предыдущего
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  SERVER: root@193.187.95.169
+  SERVER_DIR: /opt/accountthis
+  # Ключ хоста сервера: без него ssh не знает, что подключается именно к нашему серверу
+  KNOWN_HOSTS: 193.187.95.169 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIALhdBwLVrDomo5cW72gu+ttVdn/cY0lrHQ07nuFAHkT
+  COMPOSE: docker compose -f docker-compose.yml -f docker-compose.prod.yml
+  SITE_URL: https://stackalg.tech
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend_tests: ${{ steps.diff.outputs.backend_tests }}
+      backend: ${{ steps.diff.outputs.backend }}
+      worker: ${{ steps.diff.outputs.worker }}
+      frontend: ${{ steps.diff.outputs.frontend }}
+      config: ${{ steps.diff.outputs.config }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          # Ручной запуск, первый push или force-push: сравнивать не с чем, поэтому проверяем и собираем всё
+          if [ "$EVENT" != "push" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            for name in backend_tests backend worker frontend config; do echo "$name=true" >> "$GITHUB_OUTPUT"; done
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$BEFORE" "$AFTER")
+          echo "Изменённые файлы:"
+          echo "$CHANGED"
+          has() { echo "$CHANGED" | grep -qE "$1" && echo true || echo false; }
+
+          # Shared входит и в API, и в Worker, поэтому его изменение пересобирает оба образа
+          echo "backend_tests=$(has '^backend/')" >> "$GITHUB_OUTPUT"
+          echo "backend=$(has '^backend/(AccountThis\.(Api|Shared)/|Dockerfile$)')" >> "$GITHUB_OUTPUT"
+          echo "worker=$(has '^backend/(AccountThis\.(Worker|Shared)/|Dockerfile\.worker$)')" >> "$GITHUB_OUTPUT"
+          echo "frontend=$(has '^frontend/')" >> "$GITHUB_OUTPUT"
+          echo "config=$(has '^(docker-compose(\.prod)?\.yml|deploy/)')" >> "$GITHUB_OUTPUT"
+
+  test-backend:
+    needs: changes
+    if: needs.changes.outputs.backend_tests == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # Тесты сами поднимают Postgres и RabbitMQ через Testcontainers (Docker на раннере есть)
+      - name: Сборка и тесты бэкенда
+        run: dotnet test backend/AccountThis.Api.Tests -c Release
+
+  test-frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24, как в frontend/Dockerfile
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Проверка типов и сборка
+        run: npm run build
+
+      - name: Тесты
+        run: npm test
+
+  deploy:
+    needs: [changes, test-backend, test-frontend]
+    # always(): пропущенная проверка (её часть не менялась) не должна блокировать деплой, а упавшая — должна
+    if: >-
+      always()
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+      && (needs.changes.outputs.backend == 'true'
+        || needs.changes.outputs.worker == 'true'
+        || needs.changes.outputs.frontend == 'true'
+        || needs.changes.outputs.config == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Выбрать образы для сборки
+        id: images
+        env:
+          BACKEND: ${{ needs.changes.outputs.backend }}
+          WORKER: ${{ needs.changes.outputs.worker }}
+          FRONTEND: ${{ needs.changes.outputs.frontend }}
+        run: |
+          services=""
+          [ "$BACKEND" = "true" ] && services="$services backend"
+          [ "$WORKER" = "true" ] && services="$services worker"
+          [ "$FRONTEND" = "true" ] && services="$services nginx"
+          echo "services=$services" >> "$GITHUB_OUTPUT"
+          # Имена образов заданы в docker-compose.prod.yml: accountthis-<сервис>:latest
+          echo "images=$(for s in $services; do printf 'accountthis-%s:latest ' "$s"; done)" >> "$GITHUB_OUTPUT"
+          echo "Собираем:${services:- ничего, меняются только настройки}"
+
+      - name: Сборка образов
+        if: steps.images.outputs.services != ''
+        run: $COMPOSE build ${{ steps.images.outputs.services }}
+
+      - name: Настроить SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SSH_PRIVATE_KEY" ]; then
+            echo "::error::Нет секрета SSH_PRIVATE_KEY (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      # Compose-файлы и Caddyfile копируются всегда: так настройки на сервере не расходятся с репозиторием.
+      # .env на сервере не трогаем — секреты живут только там
+      - name: Передать настройки
+        run: |
+          ssh "$SERVER" "mkdir -p $SERVER_DIR/deploy"
+          scp docker-compose.yml docker-compose.prod.yml "$SERVER:$SERVER_DIR/"
+          scp deploy/Caddyfile "$SERVER:$SERVER_DIR/deploy/"
+
+      - name: Передать образы
+        if: steps.images.outputs.services != ''
+        run: docker save ${{ steps.images.outputs.images }} | gzip -1 | ssh "$SERVER" 'gunzip | docker load'
+
+      # up пересоздаёт только контейнеры, у которых сменился образ или настройки.
+      # prune удаляет прошлые версии образов, чтобы они не копились на сервере
+      - name: Перезапуск
+        env:
+          CONFIG: ${{ needs.changes.outputs.config }}
+        run: |
+          ssh "$SERVER" "cd $SERVER_DIR && $COMPOSE up -d --no-build --remove-orphans && docker image prune -f"
+          # Caddyfile подключён как файл, и up не замечает изменения в нём — перечитываем вручную
+          if [ "$CONFIG" = "true" ]; then
+            ssh "$SERVER" "cd $SERVER_DIR && $COMPOSE exec -T caddy caddy reload --config /etc/caddy/Caddyfile"
+          fi
+
+      # Бэкенд при старте применяет миграции, поэтому ждём до двух минут
+      - name: Проверить сайт
+        run: |
+          for i in $(seq 1 24); do
+            if curl -fsS -o /dev/null "$SITE_URL/api/auth/server-key"; then
+              echo "Сайт отвечает"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Сайт не отвечает после деплоя"
+          ssh "$SERVER" "cd $SERVER_DIR && $COMPOSE ps && $COMPOSE logs --tail 50 backend nginx"
+          exit 1
