@@ -32,6 +32,7 @@ import {
 } from '../../entities/toolsModel';
 
 import ToolCard from './ToolCard';
+import ToolTile from './ToolTile';
 import ToolDetailsDrawer from './ToolDetailsDrawer';
 import { conditionBadge } from './toolCondition';
 
@@ -179,59 +180,60 @@ export default function ToolsPage() {
         <Tab label="Стенд" />
       </Tabs>
 
+      {/* Search + filters are shared by both tabs */}
+      <Stack
+        direction={isMobile ? 'column' : 'row'}
+        spacing={2}
+        sx={{
+          alignItems: isMobile ? 'stretch' : 'center',
+          // A wrapping column grows to the chips' full width on phones
+          // and causes horizontal page scroll, so wrap on desktop only
+          flexWrap: isMobile ? 'nowrap' : 'wrap',
+        }}
+      >
+        <TextField
+          type="search"
+          label="Название"
+          value={query}
+          onChange={(event) => handleQueryChange(event.target.value)}
+          fullWidth={isMobile}
+          sx={{ minWidth: isMobile ? 0 : 320 }}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            },
+          }}
+        />
+
+        {/* On phones the chips scroll horizontally instead of wrapping */}
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{
+            minWidth: 0,
+            overflowX: isMobile ? 'auto' : 'visible',
+            pb: isMobile ? 0.5 : 0,
+          }}
+        >
+          {filters.map(({ value, label }) => (
+            <Chip
+              key={value}
+              label={label}
+              clickable
+              color={filter === value ? 'primary' : 'default'}
+              variant={filter === value ? 'filled' : 'outlined'}
+              onClick={() => handleFilterChange(value)}
+            />
+          ))}
+        </Stack>
+      </Stack>
+
       {tab === 0 && (
         <>
-          <Stack
-            direction={isMobile ? 'column' : 'row'}
-            spacing={2}
-            sx={{
-              alignItems: isMobile ? 'stretch' : 'center',
-              // A wrapping column grows to the chips' full width on phones
-              // and causes horizontal page scroll, so wrap on desktop only
-              flexWrap: isMobile ? 'nowrap' : 'wrap',
-            }}
-          >
-            <TextField
-              type="search"
-              label="Название"
-              value={query}
-              onChange={(event) => handleQueryChange(event.target.value)}
-              fullWidth={isMobile}
-              sx={{ minWidth: isMobile ? 0 : 320 }}
-              slotProps={{
-                input: {
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon fontSize="small" />
-                    </InputAdornment>
-                  ),
-                },
-              }}
-            />
-
-            {/* On phones the chips scroll horizontally instead of wrapping */}
-            <Stack
-              direction="row"
-              spacing={1}
-              sx={{
-                minWidth: 0,
-                overflowX: isMobile ? 'auto' : 'visible',
-                pb: isMobile ? 0.5 : 0,
-              }}
-            >
-              {filters.map(({ value, label }) => (
-                <Chip
-                  key={value}
-                  label={label}
-                  clickable
-                  color={filter === value ? 'primary' : 'default'}
-                  variant={filter === value ? 'filled' : 'outlined'}
-                  onClick={() => handleFilterChange(value)}
-                />
-              ))}
-            </Stack>
-          </Stack>
-
           {isMobile ? (
             <>
               <Stack spacing={1.5}>
@@ -276,6 +278,36 @@ export default function ToolsPage() {
                 onPageChange: setPage,
               }}
             />
+          )}
+        </>
+      )}
+
+      {tab === 1 && (
+        <>
+          {/* Стенд: the whole board as square boxes, 2 per row on phones */}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'repeat(2, minmax(0, 1fr))',
+                sm: 'repeat(auto-fill, minmax(180px, 1fr))',
+              },
+              gap: isMobile ? 1.5 : 2,
+            }}
+          >
+            {filteredTools.map((tool) => (
+              <ToolTile
+                key={tool.id}
+                tool={tool}
+                onDetails={(t) => setSelectedToolId(t.id)}
+              />
+            ))}
+          </Box>
+
+          {filteredTools.length === 0 && (
+            <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
+              Ничего не найдено
+            </Typography>
           )}
         </>
       )}

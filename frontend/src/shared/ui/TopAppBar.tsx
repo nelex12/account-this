@@ -20,7 +20,7 @@ import {
  * The navigation rail header uses the same value so its logo block and divider
  * line up exactly with the top bar.
  */
-export const TOP_APP_BAR_DESKTOP_HEIGHT = 112;
+export const TOP_APP_BAR_DESKTOP_HEIGHT = 64;
 const TOP_APP_BAR_MOBILE_HEIGHT = 64;
 
 export interface TopAppBarAction {
