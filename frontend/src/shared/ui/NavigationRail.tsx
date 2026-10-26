@@ -1,10 +1,11 @@
 // src/app/router/layouts/NavigationRail.tsx
 import {
   Box, Typography, List, ListItem, ListItemButton,
-  ListItemIcon, ListItemText, Divider,
+  ListItemIcon, ListItemText,
 } from '@mui/material';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useNavItems } from '../useNavItems';
+import { TOP_APP_BAR_DESKTOP_HEIGHT } from './TopAppBar';
 
 export default function NavigationRail() {
   const items = useNavItems();
@@ -22,11 +23,22 @@ export default function NavigationRail() {
         borderColor: 'divider',
       }}
     >
-      <Box sx={{ p: 2 }}>
+      {/* Same height as the top bar (+1px for its bottom border), so the divider
+          under the logo continues the line under the top bar. */}
+      <Box
+        sx={{
+          height: TOP_APP_BAR_DESKTOP_HEIGHT + 1,
+          flexShrink: 0,
+          boxSizing: 'border-box',
+          display: 'flex',
+          alignItems: 'center',
+          px: 2,
+          borderBottom: 1,
+          borderColor: 'divider',
+        }}
+      >
         <Typography variant="h6" component="div">Account This!</Typography>
       </Box>
-
-      <Divider />
 
       <List component="nav" sx={{ px: 1 }}>
         {items.map((item) => {

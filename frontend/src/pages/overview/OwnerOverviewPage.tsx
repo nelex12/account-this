@@ -1,5 +1,6 @@
 // OwnerOverviewPage.tsx
 import type { ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Avatar from '@mui/material/Avatar';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -216,6 +217,7 @@ function NotificationsList() {
  *               (GET /api/notifications; "Прочитано" -> POST /api/notifications/{id}/read)
  */
 export default function OwnerOverviewPage() {
+  const navigate = useNavigate();
   const { data, isLoading, isError, error } = useOverview();
 
   if (isLoading) {
@@ -267,7 +269,7 @@ export default function OwnerOverviewPage() {
             <Typography variant="h5" component="h2">
               История учета
             </Typography>
-            <Button variant="text" size="large">
+            <Button variant="text" size="large" onClick={() => navigate('/journal')}>
               Все записи
             </Button>
           </Box>

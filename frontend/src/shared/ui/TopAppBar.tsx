@@ -15,6 +15,14 @@ import {
   ArrowBackIcon
 } from '../Icons';
 
+/**
+ * Fixed content height of the desktop top bar (the 1px bottom border is extra).
+ * The navigation rail header uses the same value so its logo block and divider
+ * line up exactly with the top bar.
+ */
+export const TOP_APP_BAR_DESKTOP_HEIGHT = 112;
+const TOP_APP_BAR_MOBILE_HEIGHT = 64;
+
 export interface TopAppBarAction {
   label: string;
   onClick?: () => void;
@@ -69,13 +77,28 @@ export default function TopAppBar({
       position="static"
       color="default"
       elevation={0}
-      sx={{ bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}
+      sx={{
+        bgcolor: 'background.paper',
+        borderBottom: 1,
+        borderColor: 'divider',
+        boxSizing: 'border-box',
+        flexShrink: 0,
+      }}
     >
       <Toolbar
         disableGutters
         sx={{
-          minHeight: isMobile ? 64 : 112,
-          py: isMobile ? '8px' : '15px',
+          // Desktop: an exact height (not min-height), so the bar can never grow or
+          // shrink depending on its content (title only, actions, chip, back button).
+          ...(isMobile
+            ? { minHeight: TOP_APP_BAR_MOBILE_HEIGHT }
+            : {
+                height: TOP_APP_BAR_DESKTOP_HEIGHT,
+                minHeight: TOP_APP_BAR_DESKTOP_HEIGHT,
+                maxHeight: TOP_APP_BAR_DESKTOP_HEIGHT,
+              }),
+          boxSizing: 'border-box',
+          py: isMobile ? '8px' : 0,
           px: isMobile ? '8px' : '15px',
           gap: isMobile ? '8px' : '20px',
           alignItems: 'center',

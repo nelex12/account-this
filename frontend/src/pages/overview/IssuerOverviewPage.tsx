@@ -17,6 +17,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { ArrowForwardIcon, QrCodeScannerIcon, RefreshIcon } from '../../shared/Icons';
 import StatusBadge, { type StatusBadgeColor } from '../../shared/ui/StatusBadge';
+import { BOTTOM_NAV_HEIGHT } from '../../shared/ui/NavigationBottom';
 import {
   conditionFromApi,
   formatUnix,
@@ -243,7 +244,7 @@ export default function IssuerOverviewPage({ onScan }: IssuerOverviewPageProps) 
         </Typography>
       )}
 
-      {/* Floating scan button, above the bottom navigation */}
+      {/* Floating scan button: fully above the bottom navigation, with a 16px gap */}
       <Fab
         variant="extended"
         color="primary"
@@ -251,7 +252,7 @@ export default function IssuerOverviewPage({ onScan }: IssuerOverviewPageProps) 
         sx={{
           position: 'fixed',
           right: 16,
-          bottom: 'calc(72px + env(safe-area-inset-bottom))',
+          bottom: `calc(${BOTTOM_NAV_HEIGHT + 16}px + env(safe-area-inset-bottom))`,
           zIndex: (theme) => theme.zIndex.appBar - 1,
         }}
       >

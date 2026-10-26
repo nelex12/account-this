@@ -3,6 +3,13 @@ import { Paper, BottomNavigation, BottomNavigationAction } from '@mui/material';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useNavItems } from '../useNavItems';
 
+/**
+ * Height of the bottom navigation itself (without the safe-area inset).
+ * Set explicitly below so other elements (the FAB, page padding) can position
+ * themselves against it instead of guessing.
+ */
+export const BOTTOM_NAV_HEIGHT = 80;
+
 export default function NavigationBottom() {
   const items = useNavItems({ forBottomNav: true });
   const { pathname } = useLocation();
@@ -22,7 +29,11 @@ export default function NavigationBottom() {
         zIndex: (theme) => theme.zIndex.appBar,
       }}
     >
-      <BottomNavigation showLabels value={activeIndex === -1 ? false : activeIndex}>
+      <BottomNavigation
+        showLabels
+        value={activeIndex === -1 ? false : activeIndex}
+        sx={{ height: BOTTOM_NAV_HEIGHT }}
+      >
         {items.map((item) => (
           <BottomNavigationAction
             key={item.path}
