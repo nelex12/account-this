@@ -6,6 +6,7 @@ import {
 import { NavLink, useLocation } from 'react-router-dom';
 import { useNavItems } from '../useNavItems';
 import { TOP_APP_BAR_DESKTOP_HEIGHT } from './TopAppBar';
+import AppLogo from './AppLogo';
 
 export default function NavigationRail() {
   const items = useNavItems();
@@ -32,12 +33,16 @@ export default function NavigationRail() {
           boxSizing: 'border-box',
           display: 'flex',
           alignItems: 'center',
+          gap: 1.5,
           px: 2,
           borderBottom: 1,
           borderColor: 'divider',
         }}
       >
-        <Typography variant="h6" component="div">Account This!</Typography>
+        <AppLogo />
+        <Typography variant="h6" component="div" noWrap>
+          Account This!
+        </Typography>
       </Box>
 
       <List component="nav" sx={{ px: 1 }}>

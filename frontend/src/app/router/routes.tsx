@@ -10,7 +10,6 @@ import { AddToolDialogProvider } from '../providers/AddToolDialogProvider';
 import { StickersDialogProvider } from '../providers/StickersDialogProvider';
 import { WorkerCertificateProvider } from '../providers/WorkerCertificateProvider';
 import RoleGuard from './RoleGuard';
-import DesktopLayout from './layouts/DesktopLayout';
 import MobileLayout from './layouts/MobileLayout';
 import SimpleLayout from './layouts/SimpleLayout';
 import OwnerShell from './layouts/OwnerShell';
@@ -27,6 +26,7 @@ import ScanPage from '../../pages/scan/ScanPage';
 import OperationPage from '../../pages/operation/OperationPage';
 import QrPage from '../../pages/qr/QrPage';
 import { IssuerOfflineProvider } from '../providers/IssuerOfflineProvider';
+import OwnerOverviewPage from '../../pages/overview/OwnerOverviewPage';
 
 export type Role = 'Owner' | 'Issuer' | 'Worker';
 
@@ -80,7 +80,7 @@ function LayoutByRole() {
       return (
         <AddToolDialogProvider>
           <StickersDialogProvider>
-            <DesktopLayout />
+            <OwnerShell />
           </StickersDialogProvider>
         </AddToolDialogProvider>
       );
@@ -109,13 +109,7 @@ function OverviewByRole() {
 
   switch (user?.role) {
     case 'Owner':
-      return (
-        <AddToolDialogProvider>
-          <StickersDialogProvider>
-            <OwnerShell />
-          </StickersDialogProvider>
-        </AddToolDialogProvider>
-      );
+      return <OwnerOverviewPage />;
     case 'Issuer':
       return <IssuerOverviewPage />;
     case 'Worker':
