@@ -17,7 +17,6 @@ import OwnerShell from './layouts/OwnerShell';
 
 import LoginPage from '../../pages/auth/LoginPage';
 import SignUpPage from '../../pages/auth/SignUpPage';
-import OwnerOverviewPage from '../../pages/overview/OwnerOverviewPage';
 import WorkerOverviewPage from '../../pages/overview/WorkerOverviewPage';
 import IssuerOverviewPage from '../../pages/overview/IssuerOverviewPage';
 import ToolsPage from '../../pages/tools/ToolsPage';
