@@ -58,20 +58,20 @@ const columns: DataTableColumn<JournalRow>[] = [
   {
     key: 'tool',
     label: 'ИНСТРУМЕНТ',
-    width: '29%',
+    width: '28%',
     render: (row) => <Typography>{row.toolName}</Typography>,
   },
   { key: 'employee', label: 'СОТРУДНИК', width: '16%', render: (row) => row.employee },
   {
     key: 'condition',
     label: 'СОСТОЯНИЕ',
-    width: '17%',
+    width: '14%',
     render: (row) => <StatusBadge {...row.condition} />,
   },
   {
     key: 'validation',
     label: 'ПРОВЕРКА',
-    width: '10%',
+    width: '14%',
     render: (row) => <StatusBadge label={row.validation.label} color={row.validation.color} />,
   },
 ];

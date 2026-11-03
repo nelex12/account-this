@@ -13,6 +13,7 @@ import RoleGuard from './RoleGuard';
 import DesktopLayout from './layouts/DesktopLayout';
 import MobileLayout from './layouts/MobileLayout';
 import SimpleLayout from './layouts/SimpleLayout';
+import OwnerShell from './layouts/OwnerShell';
 
 import LoginPage from '../../pages/auth/LoginPage';
 import SignUpPage from '../../pages/auth/SignUpPage';
@@ -109,7 +110,13 @@ function OverviewByRole() {
 
   switch (user?.role) {
     case 'Owner':
-      return <OwnerOverviewPage />;
+      return (
+        <AddToolDialogProvider>
+          <StickersDialogProvider>
+            <OwnerShell />
+          </StickersDialogProvider>
+        </AddToolDialogProvider>
+      );
     case 'Issuer':
       return <IssuerOverviewPage />;
     case 'Worker':
