@@ -89,6 +89,7 @@ Routing key сообщения — тип события (`user.deactivated`).
 | `user.deactivated` | `DELETE /api/users/{id}`, был активен | Owner | `userId`, `revokedSessions` — сколько сессий погашено |
 | `auth.logged_in` | `POST /api/auth/login` → 200 | вошедший | `{}` |
 | `auth.session_reuse_detected` | `/api/auth/refresh`: предъявлен погашенный ротацией токен живой сессии | владелец сессии | `{}` |
+| `auth.password_changed` | `POST /api/auth/change-password` → 200 | сменивший пароль | `revokedSessions` — сколько сессий погашено (новая сессия, выданная в ответе, не в счёт) |
 | `tool.created` | `POST /api/tools` → 201 | вызывающий | `toolId`, `name` |
 | `tool.updated` | `PATCH /api/tools/{id}` → 200 | вызывающий | `toolId` и переданные поля: `condition`, `comment` |
 | `tool.written_off` | `DELETE /api/tools/{id}`, был активен | Owner | `toolId` |

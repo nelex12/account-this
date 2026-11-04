@@ -154,6 +154,43 @@ public class AuthController(IAuthService authService) : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Смена пароля по текущему паролю. Гасит все сессии пользователя (все устройства) и начинает новую:
+    /// access token в теле, refresh token в cookie — устройство, с которого сменили пароль, остаётся в системе.
+    /// 400 — неверный текущий пароль (ключ currentPassword) или новый совпадает с текущим (ключ newPassword);
+    /// 403 — аккаунт уволен (проверка по БД). Любая роль.
+    /// </summary>
+    [HttpPost("change-password")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    // 401 отдаёт проверка JWT без тела; 403 по is_active (проверка по БД) — ProblemDetails
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<LoginResponse>> ChangePassword(
+        [FromBody] ChangePasswordRequest request, CancellationToken cancellationToken)
+    {
+        var result = await authService.ChangePasswordAsync(User.GetCompanyId(), User.GetUserId(), request, cancellationToken);
+        switch (result.Status)
+        {
+            case ChangePasswordStatus.Changed:
+                SetRefreshCookie(result.RefreshToken!);
+                return TokenResponse(result.AccessToken!);
+
+            // Не 401: клиент принял бы его за истёкший access token и пошёл бы в /api/auth/refresh
+            case ChangePasswordStatus.WrongCurrentPassword:
+                ModelState.AddModelError("currentPassword", "Неверный текущий пароль");
+                return ValidationProblem(ModelState);
+
+            case ChangePasswordStatus.Deactivated:
+                return Problem(
+                    statusCode: StatusCodes.Status403Forbidden,
+                    detail: "Аккаунт деактивирован");
+
+            default:
+                throw new InvalidOperationException($"Неизвестный результат смены пароля: {result.Status}");
+        }
+    }
+
     private const string RefreshCookieName = "refresh_token";
 
     // Браузер отправляет cookie только на /api/auth/* и только с того же сайта; JavaScript её не видит

@@ -25,6 +25,9 @@ info:
     предъявление погашенного токена — признак кражи: гасится вся сессия (все токены цепочки), нужно войти заново.
     `POST /api/auth/logout` завершает сессию.
 
+    **Смена пароля:** `POST /api/auth/change-password` гасит все сессии пользователя (все устройства) и сразу
+    начинает новую для устройства, с которого пароль сменили. Выданные раньше access token действуют до истечения.
+
     **Отзыв при увольнении:** `DELETE /api/users/{id}` гасит все refresh token пользователя (все его сессии);
     выданный access token действует до истечения — не более 15 минут. Офлайн-сертификат сотрудника
     (`/api/auth/worker-cert`) проверяется без сервера и не отзывается, поэтому операции, совершённые после
@@ -87,7 +90,7 @@ info:
     - **401 / 403 / 404 / 409 от контроллера** (бизнес-проверки) — тело ProblemDetails (`application/problem+json`),
       `detail` — понятное пользователю пояснение на русском.
     - Во всех ProblemDetails есть `traceId` — идентификатор запроса для поиска в логах сервера.
-  version: 5.2.0
+  version: 5.3.0
 
 servers:
   - url: http://localhost
@@ -97,7 +100,7 @@ servers:
 
 tags:
   - name: Auth
-    description: Регистрация, вход, ключ сервера и сертификаты сотрудников
+    description: Регистрация, вход, смена пароля, ключ сервера и сертификаты сотрудников
   - name: Companies
     description: Своя компания (id для регистрации сотрудников)
   - name: Users
@@ -300,6 +303,77 @@ paths:
           headers:
             Set-Cookie:
               $ref: '#/components/headers/ClearRefreshCookie'
+
+  /api/auth/change-password:
+    post:
+      tags: [Auth]
+      operationId: ChangePassword
+      summary: Смена пароля
+      description: |
+        Пользователь любой роли меняет свой пароль, подтверждая его текущим паролем. Пользователь — из JWT
+        (claims `sub` и `company_id`), чужой пароль сменить нечем.
+
+        В одной транзакции: сохраняется хеш нового пароля, **гасятся все refresh token пользователя** (все его
+        сессии на всех устройствах — пароль мог утечь) и начинается новая сессия. Ответ — как у входа:
+        новый access token в теле, новый refresh token в cookie `refresh_token`. Устройство, с которого сменили пароль,
+        остаётся в системе; остальные получат 401 на ближайшем `/api/auth/refresh`. Выданные раньше access token
+        не отзываются и действуют до истечения (не более 15 минут).
+
+        Разрешено только при is_active = true (проверяется по БД в момент запроса): уволенный с ещё не истёкшим
+        access token получает 403.
+
+        При 400 и 403 пароль и сессии не меняются, cookie не выставляется.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Пароль изменён, остальные сессии завершены, начата новая
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetRefreshCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: |
+            Некорректный запрос (см. ValidationError), а также:
+            - ключ `currentPassword` — неверный текущий пароль. Именно 400, а не 401: 401 означает истёкший
+              access token, и клиент ушёл бы в `/api/auth/refresh`;
+            - ключ `newPassword` — новый пароль совпадает с текущим.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblemDetails'
+              example:
+                type: https://tools.ietf.org/html/rfc9110#section-15.5.1
+                title: One or more validation errors occurred.
+                status: 400
+                errors:
+                  currentPassword: ['Неверный текущий пароль']
+                traceId: 00-2f1c...-01
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Аккаунт уволен (is_active = false), проверка по БД
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: https://tools.ietf.org/html/rfc9110#section-15.5.4
+                title: Forbidden
+                status: 403
+                detail: Аккаунт деактивирован
+                traceId: 00-2f1c...-01
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
 
   /api/auth/server-key:
     get:
@@ -1134,6 +1208,26 @@ components:
           pattern: '\S'
           description: Не пустой и не только из пробелов
           example: "securePassword123"
+
+    ChangePasswordRequest:
+      type: object
+      description: Новый пароль должен отличаться от текущего (иначе 400 с ключом `newPassword`)
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          format: password
+          minLength: 1
+          pattern: '\S'
+          description: Текущий пароль. Неверный — 400 с ключом `currentPassword`
+          example: "securePassword123"
+        newPassword:
+          type: string
+          format: password
+          minLength: 1
+          pattern: '\S'
+          description: Новый пароль. Не пустой и не только из пробелов
+          example: "evenMoreSecure456"
 
     LoginResponse:
       type: object

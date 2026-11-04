@@ -114,6 +114,30 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Equal(owner.Id, row.ActorId);
     }
 
+    // Новая сессия, выданная в ответе, в revokedSessions не входит; пароли в событие не попадают.
+    // Неудачная попытка (неверный текущий пароль) события не создаёт
+    [Fact]
+    public async Task ChangePassword_PublishesOnceWithRevokedSessions()
+    {
+        const string newPassword = "Battery-Staple-2";
+        var owner = await factory.CreateOwnerAsync(_client);
+        await _client.LoginForRefreshTokenAsync(owner.Phone);
+        await _client.LoginForRefreshTokenAsync(owner.Phone);
+
+        await _client.SendAs(owner, HttpMethod.Post, "/api/auth/change-password",
+            new { currentPassword = "wrong-password", newPassword });
+        Assert.Equal(HttpStatusCode.OK, (await _client.SendAs(owner, HttpMethod.Post, "/api/auth/change-password",
+            new { currentPassword = AuthRequests.Password, newPassword })).StatusCode);
+        await Barrier(owner);
+
+        var row = Assert.Single(await _db.FindAuditEventsAsync(owner.CompanyId, "auth.password_changed"));
+        Assert.Equal(owner.Id, row.ActorId);
+        Assert.Equal(2, row.Data.GetProperty("revokedSessions").GetInt32());
+        var raw = row.Data.GetRawText();
+        Assert.DoesNotContain(AuthRequests.Password, raw);
+        Assert.DoesNotContain(newPassword, raw);
+    }
+
     // Повтор после выхода — сессия уже завершена, это не кража
     [Fact]
     public async Task RefreshAfterLogout_IsNotReuse()

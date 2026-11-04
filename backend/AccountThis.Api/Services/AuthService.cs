@@ -51,6 +51,18 @@ public enum WorkerCertStatus
 // Certificate заполнен только при Issued
 public sealed record WorkerCertResult(WorkerCertStatus Status, WorkerCertificate? Certificate = null);
 
+public enum ChangePasswordStatus
+{
+    Changed,
+    WrongCurrentPassword,
+
+    // Уволен (или пользователя из JWT нет в БД): access token ещё действует, но менять пароль и выдавать сессию нельзя
+    Deactivated
+}
+
+// AccessToken и RefreshToken (новая сессия) заполнены только при Changed
+public sealed record ChangePasswordResult(ChangePasswordStatus Status, string? AccessToken = null, string? RefreshToken = null);
+
 public interface IAuthService
 {
     // Телефон нормализуется (PhoneFormat.Normalize), пароль хешируется.
@@ -71,6 +83,12 @@ public interface IAuthService
 
     // Гасит всю сессию предъявленного токена. Неизвестный, пустой или уже погашенный токен — не ошибка
     Task LogoutAsync(string? refreshToken, CancellationToken cancellationToken);
+
+    // Смена пароля по текущему паролю. В одной транзакции: новый хеш, погашены все сессии пользователя
+    // (все устройства), начата новая сессия — для устройства, с которого сменили пароль.
+    // Пользователь ищется по id и компании из JWT; is_active проверяется по БД
+    Task<ChangePasswordResult> ChangePasswordAsync(
+        Guid companyId, Guid userId, ChangePasswordRequest request, CancellationToken cancellationToken);
 }
 
 public class AuthService(
@@ -339,6 +357,73 @@ public class AuthService(
         cmd.Parameters.AddWithValue("now", timeProvider.GetUtcNow().ToUnixTimeSeconds());
         cmd.Parameters.AddWithValue("tokenHash", tokenHash);
         await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<ChangePasswordResult> ChangePasswordAsync(
+        Guid companyId, Guid userId, ChangePasswordRequest request, CancellationToken cancellationToken)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
+
+        // FOR UPDATE: две одновременные смены пароля идут по очереди, и вторая проверяет текущий пароль
+        // уже по новому хешу. company_id в WHERE — та же изоляция, что и везде: id из токена ищется в компании из токена
+        UserRole role;
+        string storedHash;
+        await using (var cmdFind = new NpgsqlCommand(
+            "SELECT role::text, is_active, password_hash FROM users WHERE id = @id AND company_id = @companyId FOR UPDATE",
+            conn,
+            transaction))
+        {
+            cmdFind.Parameters.AddWithValue("id", userId);
+            cmdFind.Parameters.AddWithValue("companyId", companyId);
+
+            await using var reader = await cmdFind.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken) || !reader.GetBoolean(1))
+            {
+                return new ChangePasswordResult(ChangePasswordStatus.Deactivated);
+            }
+
+            role = Enum.Parse<UserRole>(reader.GetString(0));
+            storedHash = reader.GetString(2);
+        }
+
+        if (!passwordHasher.Verify(request.CurrentPassword, storedHash))
+        {
+            return new ChangePasswordResult(ChangePasswordStatus.WrongCurrentPassword);
+        }
+
+        await using (var cmdUpdate = new NpgsqlCommand(
+            "UPDATE users SET password_hash = @hash WHERE id = @id",
+            conn,
+            transaction))
+        {
+            cmdUpdate.Parameters.AddWithValue("hash", passwordHasher.Hash(request.NewPassword));
+            cmdUpdate.Parameters.AddWithValue("id", userId);
+            await cmdUpdate.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // Пароль мог утечь: гасятся все сессии пользователя, как при увольнении. Сессия = family_id
+        int revokedSessions;
+        await using (var cmdRevoke = new NpgsqlCommand(
+            "WITH revoked AS (" +
+            "  UPDATE refresh_tokens SET revoked_at = @now WHERE user_id = @id AND revoked_at IS NULL RETURNING family_id" +
+            ") SELECT count(DISTINCT family_id)::int FROM revoked",
+            conn,
+            transaction))
+        {
+            cmdRevoke.Parameters.AddWithValue("now", timeProvider.GetUtcNow().ToUnixTimeSeconds());
+            cmdRevoke.Parameters.AddWithValue("id", userId);
+            revokedSessions = (int)(await cmdRevoke.ExecuteScalarAsync(cancellationToken))!;
+        }
+
+        // Устройство, с которого сменили пароль, остаётся в системе: новая сессия, как при входе
+        var refreshToken = await InsertRefreshTokenAsync(conn, transaction, userId, Guid.NewGuid(), cancellationToken);
+        await eventOutbox.AddAsync(conn, transaction, EventTypes.AuthPasswordChanged, companyId, userId,
+            new { revokedSessions }, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        var accessToken = jwtTokenService.CreateAccessToken(userId, role, companyId);
+        return new ChangePasswordResult(ChangePasswordStatus.Changed, accessToken, refreshToken);
     }
 
     // Новый refresh token сессии familyId. В БД — только SHA-256 токена, клиенту — сам токен (base64url)

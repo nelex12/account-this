@@ -14,6 +14,7 @@ public static class EventTypes
     public const string UserDeactivated = "user.deactivated";
     public const string AuthLoggedIn = "auth.logged_in";
     public const string AuthSessionReuseDetected = "auth.session_reuse_detected";
+    public const string AuthPasswordChanged = "auth.password_changed";
     public const string ToolCreated = "tool.created";
     public const string ToolUpdated = "tool.updated";
     public const string ToolWrittenOff = "tool.written_off";

@@ -24,6 +24,7 @@ flowchart LR
             E_login["POST /api/auth/login · Login<br/>anonymous · 200 400 401 403"]
             E_refresh["POST /api/auth/refresh · Refresh<br/>cookie refresh_token · 200 401"]
             E_logout["POST /api/auth/logout · Logout<br/>cookie refresh_token · 204"]
+            E_passwd["POST /api/auth/change-password · ChangePassword<br/>любая роль · 200 400 403"]
             E_key["GET /api/auth/server-key · GetServerKey<br/>anonymous · 200"]
             E_cert["GET /api/auth/worker-cert · GetWorkerCert<br/>Worker · 200 403"]
         end
@@ -61,6 +62,7 @@ flowchart LR
             S_login["LoginAsync<br/>Normalize · Verify · CreateAccessToken<br/>(id, роль, компания) · новая сессия"]
             S_refresh["RefreshAsync<br/>ротация токена · повтор погашенного<br/>гасит всю сессию"]
             S_logout["LogoutAsync<br/>гасит сессию токена"]
+            S_passwd["ChangePasswordAsync<br/>Verify · Hash · гасит все сессии<br/>· новая сессия"]
             S_key["GetServerKey<br/>ServerPublicKey · время сервера"]
             S_cert["IssueWorkerCertificateAsync<br/>GenerateKeyPair · SignWithServerKey"]
         end
@@ -94,6 +96,7 @@ flowchart LR
     E_login --> S_login
     E_refresh --> S_refresh
     E_logout --> S_logout
+    E_passwd --> S_passwd
     E_key --> S_key
     E_cert --> S_cert
     E_companies --> S_companies
@@ -132,6 +135,8 @@ flowchart LR
     S_refresh -->|"SELECT FOR UPDATE · UPDATE revoked_at · INSERT"| rtokens
     S_refresh -->|"роль и компания"| users
     S_logout -->|"UPDATE revoked_at сессии"| rtokens
+    S_passwd -->|"SELECT FOR UPDATE · UPDATE password_hash"| users
+    S_passwd -->|"UPDATE revoked_at всех сессий · INSERT"| rtokens
     S_cert -->|"SELECT по id"| users
     S_me -->|"SELECT по id своей компании"| users
     S_users -->|"SELECT своей компании"| users
@@ -151,7 +156,7 @@ flowchart LR
     S_logs -->|"SELECT своей компании"| logs
     S_notes -->|"SELECT своей компании"| notes
     S_read -->|"UPDATE read_at"| notes
-    S_reg & S_login & S_refresh & S_fire & S_approve & S_tnew & S_tpatch & S_tdel & S_sync -->|"INSERT события"| outbox
+    S_reg & S_login & S_refresh & S_passwd & S_fire & S_approve & S_tnew & S_tpatch & S_tdel & S_sync -->|"INSERT события"| outbox
 
     Dispatcher["OutboxDispatcher · фоновая служба API<br/>LISTEN outbox_events · раз в 5 с<br/>пачки до 100 · publisher confirms"]
 
@@ -190,7 +195,7 @@ flowchart LR
 
     class Client actor
     class AuthN,AuthZ,Valid mw
-    class E_reg,E_login,E_refresh,E_logout,E_key,E_cert,E_companies,E_me,E_users,E_fire,E_approve,E_tools,E_tnew,E_tget,E_tpatch,E_tdel,E_sync,E_logs,E_notes,E_read code
-    class S_reg,S_login,S_refresh,S_logout,S_key,S_cert,S_companies,S_me,S_users,S_fire,S_approve,S_tools,S_tnew,S_tget,S_tpatch,S_tdel,S_sync,S_logs,S_notes,S_read code
+    class E_reg,E_login,E_refresh,E_logout,E_passwd,E_key,E_cert,E_companies,E_me,E_users,E_fire,E_approve,E_tools,E_tnew,E_tget,E_tpatch,E_tdel,E_sync,E_logs,E_notes,E_read code
+    class S_reg,S_login,S_refresh,S_logout,S_passwd,S_key,S_cert,S_companies,S_me,S_users,S_fire,S_approve,S_tools,S_tnew,S_tget,S_tpatch,S_tdel,S_sync,S_logs,S_notes,S_read code
     class Dispatcher,Exchange,Dlx,C_audit,C_notes code
     class companies,users,rtokens,tools,logs,v_cur,v_tools,outbox,notes,audit,Q_audit,Q_notes,Q_dead db

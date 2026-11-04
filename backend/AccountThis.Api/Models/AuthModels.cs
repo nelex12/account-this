@@ -98,6 +98,27 @@ public class LoginRequest
     public string Password { get; set; } = string.Empty;
 }
 
+// components.schemas.ChangePasswordRequest
+// Пароль только хешируется и в БД как есть не попадает, поэтому, как и при регистрации, ограничений кроме
+// «не пустой и не только из пробелов» ([Required]) нет
+public class ChangePasswordRequest : IValidatableObject
+{
+    [Required]
+    public string CurrentPassword { get; set; } = string.Empty;
+
+    [Required]
+    public string NewPassword { get; set; } = string.Empty;
+
+    // Имя поля — как в JSON: оно становится ключом errors в ответе 400
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (NewPassword == CurrentPassword)
+        {
+            yield return new ValidationResult("Новый пароль должен отличаться от текущего", ["newPassword"]);
+        }
+    }
+}
+
 // components.schemas.LoginResponse
 public class LoginResponse
 
