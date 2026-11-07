@@ -12,6 +12,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 
 import {
+  changePassword as changePasswordRequest,
   login as loginRequest,
   logout as logoutRequest,
   refresh as refreshRequest,
@@ -49,6 +50,12 @@ interface AuthContextValue {
   isOfflineSession: boolean;
   login: (phone: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * POST /api/auth/change-password. On success the new access token replaces the current one
+   * (like after login); the server signs out all other devices. Rejects with ApiError
+   * (400 = field errors, 403 = deactivated); the session is left untouched on failure.
+   */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 /* --------------------------------- JWT utils ------------------------------- */
@@ -324,6 +331,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applySession, queryClient],
   );
 
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      const next = await changePasswordRequest({ currentPassword, newPassword });
+      // Same user: keep the query cache, only the token pair changes. The refresh cookie is
+      // already replaced by the server; applySession also restarts the proactive-refresh timer.
+      if (!applySession(next)) {
+        throw new Error('Сервер вернул некорректный токен');
+      }
+    },
+    [applySession],
+  );
+
   const logout = useCallback(async () => {
     // an explicit sign-out also removes the worker's offline signing key from this device
     const userId =
@@ -351,8 +370,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isOfflineSession: session === null && offlineUser !== null,
       login,
       logout,
+      changePassword,
     }),
-    [user, session, offlineUser, isInitialized, login, logout],
+    [user, session, offlineUser, isInitialized, login, logout, changePassword],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

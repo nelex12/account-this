@@ -7,6 +7,7 @@ export * from './notifications';
 export * from './queryKeys';
 export * from './profile';
 export * from './auth';
+export * from './password';
 export * from './http';
 export * from './issuerOverview';
 export * from './sync';

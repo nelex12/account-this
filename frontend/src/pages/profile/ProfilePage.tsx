@@ -3,12 +3,14 @@ import InstallAppCard from '../../shared/pwa/InstallAppCard';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Avatar from '@mui/material/Avatar';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
+import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
@@ -16,6 +18,7 @@ import Typography from '@mui/material/Typography';
 import { LogoutIcon, PersonIcon } from '../../shared/Icons';
 import { useProfile } from '../../api';
 import { useAuth } from '../../app/providers/AuthProvider';
+import ChangePasswordDialog from './ChangePasswordDialog';
 
 /* --------------------------------- Helpers ---------------------------------- */
 
@@ -51,10 +54,12 @@ const ROLE_LABELS: Record<string, string> = {
  */
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, isOfflineSession } = useAuth();
   const { data: profile, isLoading } = useProfile();
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
+  const [isPasswordChanged, setIsPasswordChanged] = useState(false);
 
   const handleLogout = async () => {
     if (isLoggingOut) return;
@@ -125,13 +130,21 @@ export default function ProfilePage() {
           <Stack spacing={1.5}>
             <InstallAppCard />
 
-            {/* The API has no change-password endpoint yet */}
-            <Button variant="outlined" size="large" fullWidth disabled>
+            {/* POST /api/auth/change-password; needs a server session */}
+            <Button
+              variant="outlined"
+              size="large"
+              fullWidth
+              disabled={isOfflineSession}
+              onClick={() => setIsPasswordDialogOpen(true)}
+            >
               Изменить пароль
             </Button>
-            <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center' }}>
-              Смена пароля пока недоступна
-            </Typography>
+            {isOfflineSession && (
+              <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center' }}>
+                Смена пароля недоступна без подключения к сети
+              </Typography>
+            )}
 
             <Button
               variant="contained"
@@ -149,6 +162,23 @@ export default function ProfilePage() {
           </Stack>
         </Stack>
       </Card>
+
+      <ChangePasswordDialog
+        open={isPasswordDialogOpen}
+        onClose={() => setIsPasswordDialogOpen(false)}
+        onChanged={() => setIsPasswordChanged(true)}
+      />
+
+      <Snackbar
+        open={isPasswordChanged}
+        autoHideDuration={6000}
+        onClose={() => setIsPasswordChanged(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" variant="filled" onClose={() => setIsPasswordChanged(false)}>
+          Пароль изменён. На остальных устройствах нужно войти заново.
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
