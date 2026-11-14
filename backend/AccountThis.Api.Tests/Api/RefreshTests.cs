@@ -2,13 +2,15 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Text.Json;
 using AccountThis.Api.Models;
+using AccountThis.Api.Services;
 using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
 // POST /api/auth/refresh — без JWT, refresh token в cookie. 200: новый access token в теле и новый refresh token
 // в cookie (ротация: предъявленный гасится). 401 с ProblemDetails и удалением cookie — во всех остальных случаях.
-// Повторное предъявление погашенного ротацией токена гасит всю сессию.
+// Повторное предъявление погашенного ротацией токена гасит всю сессию, кроме потерянного ответа
+// (выданный взамен токен не использован, прошло не больше AuthService.RefreshReuseGrace).
 [Collection("Api")]
 public class RefreshTests(ApiFactory factory)
 {
@@ -95,13 +97,30 @@ public class RefreshTests(ApiFactory factory)
         await AssertSessionGone(response);
     }
 
-    // Старый токен после ротации — повторное предъявление: признак кражи, гасится вся сессия,
-    // включая токен, выданный взамен (иначе вор, успевший обменять токен первым, сохранил бы доступ)
+    // Старый токен предъявлен, когда выданный взамен уже использован: токеном сессии пользуются двое —
+    // признак кражи, гасится вся сессия, включая последний токен (иначе вор, успевший обменять токен первым,
+    // сохранил бы доступ)
     [Fact]
-    public async Task RotatedTokenReused_Returns401AndEndsWholeSession()
+    public async Task RotatedTokenReused_AfterSuccessorUsed_Returns401AndEndsWholeSession()
     {
         var (_, first) = await LoggedInOwner();
         var second = (await _client.RefreshAsync(first)).RefreshToken();
+        var third = (await _client.RefreshAsync(second)).RefreshToken();
+
+        var reuse = await _client.RefreshAsync(first);
+        var afterReuse = await _client.RefreshAsync(third);
+
+        await AssertSessionGone(reuse);
+        await AssertSessionGone(afterReuse);
+    }
+
+    // Старый токен предъявлен позже окна повторного предъявления — тоже кража, даже если новый не использован
+    [Fact]
+    public async Task RotatedTokenReused_AfterGraceWindow_Returns401AndEndsWholeSession()
+    {
+        var (_, first) = await LoggedInOwner();
+        var second = (await _client.RefreshAsync(first)).RefreshToken();
+        await _db.BackdateRefreshTokenRevocationAsync(first, AuthService.RefreshReuseGrace + TimeSpan.FromSeconds(1));
 
         var reuse = await _client.RefreshAsync(first);
         var afterReuse = await _client.RefreshAsync(second);
@@ -110,13 +129,74 @@ public class RefreshTests(ApiFactory factory)
         await AssertSessionGone(afterReuse);
     }
 
+    // Потерянный ответ: сервер выдал новый токен, а браузер его не получил (F5 сразу после открытия страницы,
+    // обрыв сети) и снова предъявляет старый. Новый токен не использован, окно не прошло — сессия продолжается:
+    // выдаётся ещё один токен, а неполученный гасится
+    [Fact]
+    public async Task RotatedTokenReused_WithinGraceAndSuccessorUnused_ContinuesSession()
+    {
+        var (user, first) = await LoggedInOwner();
+        var lost = (await _client.RefreshAsync(first)).RefreshToken();
+
+        var retry = await _client.RefreshAsync(first);
+
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        var next = retry.RefreshToken();
+        Assert.NotEqual(lost, next);
+        Assert.Equal(1, await _db.CountActiveRefreshTokensAsync(user.Id));
+        Assert.Equal(HttpStatusCode.OK, (await _client.RefreshAsync(next)).StatusCode);
+    }
+
+    // Ответ теряется несколько раз подряд (F5, F5): каждый повтор старого токена в окне продолжает сессию
+    [Fact]
+    public async Task RotatedTokenReused_RepeatedlyWithinGrace_ContinuesSession()
+    {
+        var (_, first) = await LoggedInOwner();
+        await _client.RefreshAsync(first);
+        await _client.RefreshAsync(first);
+
+        var retry = await _client.RefreshAsync(first);
+
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.RefreshAsync(retry.RefreshToken())).StatusCode);
+    }
+
+    // Неполученный токен, замененный повтором, больше не действует: его предъявление — признак кражи
+    [Fact]
+    public async Task LostTokenUsedAfterRetry_Returns401AndEndsWholeSession()
+    {
+        var (_, first) = await LoggedInOwner();
+        var lost = (await _client.RefreshAsync(first)).RefreshToken();
+        var next = (await _client.RefreshAsync(first)).RefreshToken();
+
+        var stale = await _client.RefreshAsync(lost);
+        var afterStale = await _client.RefreshAsync(next);
+
+        await AssertSessionGone(stale);
+        await AssertSessionGone(afterStale);
+    }
+
+    // Окно не продлевает сессию после выхода: погашенный выходом токен не обменивается
+    [Fact]
+    public async Task RotatedTokenReused_AfterLogout_Returns401()
+    {
+        var (_, first) = await LoggedInOwner();
+        var second = (await _client.RefreshAsync(first)).RefreshToken();
+        await _client.LogoutAsync(second);
+
+        var reuse = await _client.RefreshAsync(first);
+
+        await AssertSessionGone(reuse);
+    }
+
     // Повтор в одной сессии не трогает другие сессии того же пользователя (другие устройства)
     [Fact]
     public async Task RotatedTokenReused_DoesNotEndOtherSessions()
     {
         var (user, sessionA) = await LoggedInOwner();
         var sessionB = await _client.LoginForRefreshTokenAsync(user.Phone);
-        await _client.RefreshAsync(sessionA);
+        var sessionA2 = (await _client.RefreshAsync(sessionA)).RefreshToken();
+        await _client.RefreshAsync(sessionA2);
 
         await _client.RefreshAsync(sessionA);
         var response = await _client.RefreshAsync(sessionB);

@@ -1,7 +1,10 @@
 <!doctype html>
-<html lang="en">
+<!-- lang="ru": иначе браузер считает страницу английской и предлагает перевод. translate="no" и meta google
+     запрещают автоперевод: переводчик подменяет текстовые узлы, React их не находит и падает (insertBefore/removeChild) -->
+<html lang="ru" translate="no">
   <head>
     <meta charset="UTF-8" />
+    <meta name="google" content="notranslate" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#FFA500" />

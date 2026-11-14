@@ -106,7 +106,9 @@ public class AuditEventsTests(ApiFactory factory)
     {
         var owner = await factory.CreateOwnerAsync(_client);
         var first = await _client.LoginForRefreshTokenAsync(owner.Phone);
-        Assert.Equal(HttpStatusCode.OK, (await _client.RefreshAsync(first)).StatusCode);
+        var second = (await _client.RefreshAsync(first)).RefreshToken();
+        // выданный взамен токен уже использован: старым пользуется кто-то второй
+        Assert.Equal(HttpStatusCode.OK, (await _client.RefreshAsync(second)).StatusCode);
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await _client.RefreshAsync(first)).StatusCode);
 

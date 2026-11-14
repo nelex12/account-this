@@ -13,6 +13,7 @@ import RoleGuard from './RoleGuard';
 import MobileLayout from './layouts/MobileLayout';
 import SimpleLayout from './layouts/SimpleLayout';
 import OwnerShell from './layouts/OwnerShell';
+import RouteErrorPage from '../../shared/ui/RouteErrorPage';
 
 import LoginPage from '../../pages/auth/LoginPage';
 import SignUpPage from '../../pages/auth/SignUpPage';
@@ -128,110 +129,122 @@ function PublicOnly() {
 }
 
 export const router = createBrowserRouter([
-  // Public
   {
-    element: <PublicOnly />,
+    // Корень: понятный экран вместо стандартного «Unexpected Application Error!» (если упала сама оболочка)
+    errorElement: <RouteErrorPage />,
     children: [
-      { path: '/login', element: <LoginPage /> },
-      { path: '/register', element: <SignUpPage /> },
-    ],
-  },
-
-  // Private: must be signed in, shell depends on role
-  {
-    element: <RoleGuard />, // no roles prop = any signed-in user
-    children: [
+      // Public
       {
-        element: <LayoutByRole />,
+        element: <PublicOnly />,
+        children: [
+          { path: '/login', element: <LoginPage /> },
+          { path: '/register', element: <SignUpPage /> },
+        ],
+      },
+
+      // Private: must be signed in, shell depends on role
+      {
+        element: <RoleGuard />, // no roles prop = any signed-in user
         children: [
           {
-            path: '/overview',
-            element: <OverviewByRole />,
-            handle: {
-              topBar: { title: 'Обзор', statusLabel: 'В сети' },
-            } satisfies RouteHandle,
-          },
-          {
-            path: '/profile',
-            element: <ProfilePage />,
-            handle: { topBar: { title: 'Профиль' } } satisfies RouteHandle,
-          },
-
-          // Worker + Issuer: the camera (Worker scans tools, Issuer scans workers' QR)
-          {
-            element: <RoleGuard roles={['Worker', 'Issuer']} />,
+            element: <LayoutByRole />,
             children: [
               {
-                path: '/scan',
-                element: <ScanPage />,
-                handle: { topBar: { title: 'Камера' } } satisfies RouteHandle,
-              },
-            ],
-          },
-
-          // Worker only
-          {
-            element: <RoleGuard roles={['Worker']} />,
-            children: [
-              {
-                path: '/operation',
-                element: <OperationPage />,
-                handle: { topBar: { title: 'Операция' } } satisfies RouteHandle,
-              },
-              {
-                path: '/qr',
-                element: <QrPage />,
-                handle: { topBar: { title: 'QR-код' } } satisfies RouteHandle,
-              },
-            ],
-          },
-
-          // Owner + Issuer
-          {
-            element: <RoleGuard roles={['Owner', 'Issuer']} />,
-            children: [
-              {
-                path: '/tools',
-                element: <ToolsPage />,
-                handle: {
-                  topBar: {
-                    title: 'Инструменты',
-                    statusLabel: 'В сети',
-                    // onClick (open the stickers dialog) is attached by useTopBar()
-                    secondaryAction: { id: 'stickers', label: 'Печать/Загрузка наклеек', icon: <PrintIcon /> },
-                    // onClick (open the dialog) is attached by useTopBar()
-                    primaryAction: { id: 'addTool', label: 'Добавить инструмент', icon: <AddIcon /> },
+                // Ошибка страницы показывается внутри оболочки роли: навигация остаётся рабочей
+                errorElement: <RouteErrorPage />,
+                children: [
+                  {
+                    path: '/overview',
+                    element: <OverviewByRole />,
+                    handle: {
+                      topBar: { title: 'Обзор', statusLabel: 'В сети' },
+                    } satisfies RouteHandle,
                   },
-                } satisfies RouteHandle,
-              },
-              {
-                path: '/journal',
-                element: <JournalPage />,
-                handle: {
-                  topBar: { title: 'Журнал операций', statusLabel: 'В сети' },
-                } satisfies RouteHandle,
-              },
-            ],
-          },
+                  {
+                    path: '/profile',
+                    element: <ProfilePage />,
+                    handle: { topBar: { title: 'Профиль' } } satisfies RouteHandle,
+                  },
 
-          // Owner only
-          {
-            element: <RoleGuard roles={['Owner']} />,
-            children: [
-              {
-                path: '/users',
-                element: <UsersPage />,
-                handle: {
-                  topBar: { title: 'Пользователи', statusLabel: 'В сети' },
-                } satisfies RouteHandle,
+                  // Worker + Issuer: the camera (Worker scans tools, Issuer scans workers' QR)
+                  {
+                    element: <RoleGuard roles={['Worker', 'Issuer']} />,
+                    children: [
+                      {
+                        path: '/scan',
+                        element: <ScanPage />,
+                        handle: { topBar: { title: 'Камера' } } satisfies RouteHandle,
+                      },
+                    ],
+                  },
+
+                  // Worker only
+                  {
+                    element: <RoleGuard roles={['Worker']} />,
+                    children: [
+                      {
+                        path: '/operation',
+                        element: <OperationPage />,
+                        handle: { topBar: { title: 'Операция' } } satisfies RouteHandle,
+                      },
+                      {
+                        path: '/qr',
+                        element: <QrPage />,
+                        handle: { topBar: { title: 'QR-код' } } satisfies RouteHandle,
+                      },
+                    ],
+                  },
+
+                  // Owner + Issuer
+                  {
+                    element: <RoleGuard roles={['Owner', 'Issuer']} />,
+                    children: [
+                      {
+                        path: '/tools',
+                        element: <ToolsPage />,
+                        handle: {
+                          topBar: {
+                            title: 'Инструменты',
+                            statusLabel: 'В сети',
+                            // onClick (open the stickers dialog) is attached by useTopBar()
+                            secondaryAction: { id: 'stickers', label: 'Печать/Загрузка наклеек', icon: <PrintIcon /> },
+                            // onClick (open the dialog) is attached by useTopBar()
+                            primaryAction: { id: 'addTool', label: 'Добавить инструмент', icon: <AddIcon /> },
+                          },
+                        } satisfies RouteHandle,
+                      },
+                      {
+                        path: '/journal',
+                        element: <JournalPage />,
+                        handle: {
+                          topBar: { title: 'Журнал операций', statusLabel: 'В сети' },
+                        } satisfies RouteHandle,
+                      },
+                    ],
+                  },
+
+                  // Owner only
+                  {
+                    element: <RoleGuard roles={['Owner']} />,
+                    children: [
+                      {
+                        path: '/users',
+                        element: <UsersPage />,
+                        handle: {
+                          topBar: { title: 'Пользователи', statusLabel: 'В сети' },
+                        } satisfies RouteHandle,
+                      },
+                    ],
+                  },
+                ],
               },
             ],
           },
         ],
       },
+
+      { path: '/', element: <Navigate to="/overview" replace /> },
+      { path: '*', element: <Navigate to="/overview" replace /> },
     ],
   },
-
-  { path: '/', element: <Navigate to="/overview" replace /> },
-  { path: '*', element: <Navigate to="/overview" replace /> },
 ]);

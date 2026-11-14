@@ -151,6 +151,19 @@ public sealed class TestDb(string connectionString)
         Assert.True(updated == 1, "Подготовка теста: refresh token не найден в refresh_tokens по SHA-256");
     }
 
+    // Ротация «давно»: сдвигает момент погашения токена в прошлое (за окно повторного предъявления)
+    public async Task BackdateRefreshTokenRevocationAsync(string refreshToken, TimeSpan back)
+    {
+        await using var conn = await OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE refresh_tokens SET revoked_at = revoked_at - @shift WHERE token_hash = @hash AND revoked_at IS NOT NULL",
+            conn);
+        cmd.Parameters.AddWithValue("shift", (long)back.TotalSeconds);
+        cmd.Parameters.AddWithValue("hash", RefreshTokenHash(refreshToken));
+        var updated = await cmd.ExecuteNonQueryAsync();
+        Assert.True(updated == 1, "Подготовка теста: погашенный refresh token не найден в refresh_tokens по SHA-256");
+    }
+
     // ---------- tools ----------
 
     public async Task<(string Condition, long ConditionUpdatedAt)> FindToolConditionAsync(Guid toolId)
