@@ -1,4 +1,3 @@
-// useInstallPrompt — "install the app".
 //   Chrome/Edge/Android: the browser fires `beforeinstallprompt`; we keep it and show our own button.
 //   iOS Safari has no such event: the only way is Share -> "На экран «Домой»" (we show that hint).
 //   Already installed (standalone window): nothing to offer.

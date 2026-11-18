@@ -1,4 +1,3 @@
-// src/app/router/routes.tsx
 import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';

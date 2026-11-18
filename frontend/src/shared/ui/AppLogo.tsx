@@ -1,4 +1,3 @@
-// AppLogo.tsx — app logo. Placeholder icon for now: swap the body for the real SVG/img later.
 import Box from '@mui/material/Box';
 import { HandymanIcon } from '../Icons';
 

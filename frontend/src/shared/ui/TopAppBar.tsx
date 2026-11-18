@@ -1,4 +1,3 @@
-// TopAppBar.tsx
 import { useOnlineStatus } from '../useOnlineStatus';
 import type { ReactNode } from 'react';
 import { useMediaQuery, useTheme } from '@mui/material';
@@ -15,11 +14,6 @@ import {
   ArrowBackIcon
 } from '../Icons';
 
-/**
- * Fixed content height of the desktop top bar (the 1px bottom border is extra).
- * The navigation rail header uses the same value so its logo block and divider
- * line up exactly with the top bar.
- */
 export const TOP_APP_BAR_DESKTOP_HEIGHT = 64;
 const TOP_APP_BAR_MOBILE_HEIGHT = 64;
 
@@ -32,7 +26,6 @@ export interface TopAppBarAction {
 }
 
 export interface TopAppBarDesktopProps {
-  /** Screen title, e.g. "Заголовок экрана" */
   title: string;
   /** Date or short description under the title */
   supportingText?: string;

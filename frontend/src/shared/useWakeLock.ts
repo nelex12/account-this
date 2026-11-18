@@ -1,4 +1,4 @@
-// useWakeLock.ts — keeps the screen on while `active` (the Issuer has to scan the QR; a dimmed phone is useless).
+// useWakeLock.ts — keeps the screen on while `active`.
 // Not supported everywhere (older Safari): then it silently does nothing.
 import { useEffect } from 'react';
 

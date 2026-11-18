@@ -1,4 +1,3 @@
-// src/app/navigation/useNavItems.ts
 import { useMemo } from 'react';
 import { useAuth } from '../app/providers/AuthProvider';
 import { navItems, type NavItem } from './navItems';

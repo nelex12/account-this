@@ -1,4 +1,3 @@
-// src/app/router/layouts/NavigationBottom.tsx
 import { Paper, BottomNavigation, BottomNavigationAction } from '@mui/material';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useNavItems } from '../useNavItems';

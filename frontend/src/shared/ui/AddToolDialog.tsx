@@ -1,4 +1,3 @@
-// AddToolDialog.tsx
 // Dialog for creating a tool: POST /api/tools (Issuer, Owner).
 // api.yaml CreateToolRequest has a single field — `name` (required, max 100 chars,
 // it ends up in the employee's QR). On success the tools list is refetched

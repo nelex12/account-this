@@ -6,9 +6,15 @@
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Snackbar from '@mui/material/Snackbar';
+import { alpha } from '@mui/material/styles';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 const CHECK_EVERY_MS = 60 * 60_000;
+
+const alertActionSx = {
+  color: 'inherit',
+  '&:hover': { backgroundColor: (theme: { palette: { common: { white: string } } }) => alpha(theme.palette.common.white, 0.2) },
+} as const;
 
 export default function PwaStatus() {
   const {
@@ -37,10 +43,15 @@ export default function PwaStatus() {
           variant="filled"
           action={
             <>
-              <Button color="inherit" size="small" onClick={() => setNeedRefresh(false)}>
+              <Button color="inherit" size="small" sx={alertActionSx} onClick={() => setNeedRefresh(false)}>
                 Позже
               </Button>
-              <Button color="inherit" size="small" onClick={() => void updateServiceWorker(true)}>
+              <Button
+                color="inherit"
+                size="small"
+                sx={alertActionSx}
+                onClick={() => void updateServiceWorker(true)}
+              >
                 Обновить
               </Button>
             </>

@@ -1,4 +1,3 @@
-// src/app/navigation/navItems.tsx
 import type { ReactNode } from 'react';
 import type { Role } from '../app/router/routes';
 import {

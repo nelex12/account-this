@@ -1,11 +1,4 @@
-// icons.tsx
-//
 // Central re-export of MUI icons used across the app.
-// Grouped by purpose so it's easy to spot duplicates and keep the set small.
-//
-// Usage:
-//   import { HomeIcon, AddIcon } from '../theme/icons';
-//   <HomeIcon />
 
 /* ------------------------------- Navigation ------------------------------- */
 

@@ -1,4 +1,3 @@
-// src/app/router/layouts/NavigationRail.tsx
 import {
   Box, Typography, List, ListItem, ListItemButton,
   ListItemIcon, ListItemText,

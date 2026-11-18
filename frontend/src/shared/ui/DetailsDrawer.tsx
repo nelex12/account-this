@@ -1,4 +1,3 @@
-// OperationDetailsDrawer.tsx
 import Drawer from '@mui/material/Drawer';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
@@ -15,21 +14,15 @@ export type OperationStatus = 'подтверждено' | 'ожидает' | '�
 
 export interface OperationDetails {
   id: string;
-  /** Tool title, e.g. "Перфоратор Bosch GBH 2-26" */
   toolName: string;
-  /** Tool inventory number, e.g. "№0142" */
   toolNumber: string;
-  /** Short action label shown next to the number, e.g. "Возврат" */
   actionLabel: string;
   status: OperationStatus;
-  /** Time of the operation */
   time: string;
-  /** "Выдача" / "Возврат" */
   action: string;
   employee: string;
   declared: string;
   acceptedBy: string;
-  /** Where the tool was sent / is stored */
   destination: string;
   comment?: string;
 }
