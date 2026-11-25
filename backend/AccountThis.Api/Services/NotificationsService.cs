@@ -4,14 +4,11 @@ using Npgsql;
 
 namespace AccountThis.Api.Services;
 
-// Уведомления Owner (таблица notifications, её заполняет AccountThis.Worker). companyId — из JWT вызывающего:
-// уведомление другой компании неотличимо от несуществующего
 public interface INotificationsService
 {
     // Не более Limit последних, новые сверху
     Task<List<Notification>> GetAsync(Guid companyId, CancellationToken cancellationToken);
 
-    // false — не найдено; повторная отметка — true, момент прочтения не меняется
     Task<bool> MarkReadAsync(Guid companyId, long id, CancellationToken cancellationToken);
 }
 
@@ -21,7 +18,6 @@ public class NotificationsService(NpgsqlDataSource dataSource, TimeProvider time
 
     public async Task<List<Notification>> GetAsync(Guid companyId, CancellationToken cancellationToken)
     {
-        // Имя — только пользователя той же компании (u.company_id в условии соединения)
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand(
             "SELECT n.id, n.type::text, n.occurred_at, n.user_id, u.full_name, n.flags::text, n.read_at IS NOT NULL " +
@@ -53,7 +49,7 @@ public class NotificationsService(NpgsqlDataSource dataSource, TimeProvider time
 
     public async Task<bool> MarkReadAsync(Guid companyId, long id, CancellationToken cancellationToken)
     {
-        // COALESCE: повторная отметка не сдвигает момент прочтения
+        // Сохраняем время первого прочтения.
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand(
             "UPDATE notifications SET read_at = COALESCE(read_at, @now) WHERE id = @id AND company_id = @companyId",

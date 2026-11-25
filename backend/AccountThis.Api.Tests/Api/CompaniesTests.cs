@@ -6,8 +6,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// GET /api/companies/my — любая роль. Компания берётся только из JWT (company_id), параметров нет:
-// чужую компанию запросить нечем.
 [Collection("Api")]
 public class CompaniesTests(ApiFactory factory)
 {
@@ -31,7 +29,6 @@ public class CompaniesTests(ApiFactory factory)
         Assert.Equal(name, body.RootElement.GetProperty("name").GetString());
     }
 
-    // Компания, созданная регистрацией Owner, видна ему с JWT от входа
     [Fact]
     public async Task My_AfterOwnerRegistration_ReturnsCreatedCompany()
     {

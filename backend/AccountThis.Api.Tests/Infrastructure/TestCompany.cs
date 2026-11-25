@@ -7,11 +7,9 @@ namespace AccountThis.Api.Tests.Infrastructure;
 
 public sealed record TestUser(Guid Id, Guid CompanyId, string Phone, string FullName, UserRole Role)
 {
-    // JWT собирается в тестах (TestTokens), чтобы тесты не зависели от реализации входа
     public string Jwt => TestTokens.Create(Role, Id, CompanyId);
 }
 
-// Подготовка компании: Owner регистрируется через API, сотрудники — через API и подтверждаются напрямую в БД
 public static class TestCompany
 {
     public static async Task<TestUser> CreateOwnerAsync(this ApiFactory factory, HttpClient client, string fullName = "Петров Пётр Петрович")
@@ -50,7 +48,6 @@ public static class TestCompany
         return client.SendAsync(request);
     }
 
-    // Инструмент через API; возвращает его id
     public static async Task<Guid> CreateToolAsync(this HttpClient client, TestUser user, string name = "Дрель Bosch GSB 16 RE")
     {
         var response = await client.SendAs(user, HttpMethod.Post, "/api/tools", new { name });

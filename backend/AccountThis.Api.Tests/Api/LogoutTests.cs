@@ -3,8 +3,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// POST /api/auth/logout — без JWT, refresh token в cookie. Всегда 204 с удалением cookie:
-// сессия из cookie (если она была) завершается, остальные сессии пользователя не трогаются.
 [Collection("Api")]
 public class LogoutTests(ApiFactory factory)
 {
@@ -34,7 +32,6 @@ public class LogoutTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    // Выход гасит сессию, а не только предъявленный токен: токены из неё больше не действуют
     [Fact]
     public async Task AfterRotation_LogoutEndsSession()
     {
@@ -59,7 +56,6 @@ public class LogoutTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    // Сессии нет — результат тот же, что после выхода
     [Theory]
     [InlineData(null)]
     [InlineData("q8RzJ2vW0bXyL5nT3mKcA1sDfGhJkLzXcVbNm9QwErT")]

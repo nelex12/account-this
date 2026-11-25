@@ -1,5 +1,3 @@
-// Перерисовывает схемы *.mmd в images/*.png. Ширина картинки задаётся в пикселях (4K — 3840, 8K — 7680),
-// масштаб подбирается по натуральной ширине схемы. Mermaid CLI скачивается через npx при первом запуске.
 import { execSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,7 +21,6 @@ const mmdc = (input, output, scale = 1) =>
         `npx -y @mermaid-js/mermaid-cli -q -i "${input}" -o "${output}" -c "${config}" -b "${background}" -s ${scale}`,
         { stdio: 'inherit' });
 
-// Картинка может быть ненадолго занята просмотрщиком или антивирусом — повторяем копирование
 function copyWithRetry(from, to, attempts = 10) {
     for (let attempt = 1; ; attempt++) {
         try {

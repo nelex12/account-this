@@ -5,16 +5,10 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// Уведомления Owner (api.yaml: /api/notifications; docs/events.md, «Потребитель notifications»).
-// Их создаёт Worker по событиям из RabbitMQ, поэтому тесты ждут уведомление с таймаутом.
-// Отсутствие уведомления проверяется «барьером»: после действия без уведомления регистрируется сотрудник —
-// очередь notifications одна и обрабатывается по порядку, поэтому к его уведомлению первое тоже было бы создано.
 [Collection("Api")]
 public class NotificationsTests(ApiFactory factory)
 {
     private readonly HttpClient _client = factory.CookieClient();
-
-    // ---------- Доступ ----------
 
     [Fact]
     public async Task WithoutToken_Returns401()
@@ -35,8 +29,6 @@ public class NotificationsTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAs(employee, HttpMethod.Post, "/api/notifications/1/read")).StatusCode);
     }
 
-    // ---------- Сотрудник ждёт подтверждения ----------
-
     [Theory]
     [InlineData(UserRole.Worker)]
     [InlineData(UserRole.Issuer)]
@@ -54,7 +46,6 @@ public class NotificationsTests(ApiFactory factory)
         Assert.InRange(notification.GetProperty("occurredAt").GetInt64(), QrBuilder.Now - 60, QrBuilder.Now);
     }
 
-    // Owner подтверждается сам — уведомлять не о чем
     [Fact]
     public async Task OwnerRegistration_CreatesNothing()
     {
@@ -64,7 +55,6 @@ public class NotificationsTests(ApiFactory factory)
         Assert.DoesNotContain(await GetNotificationsAsync(owner), n => n.GetProperty("userId").GetGuid() == owner.Id);
     }
 
-    // Решение Owner (подтвердить или уволить) снимает уведомление: оно становится прочитанным
     [Theory]
     [InlineData("approve")]
     [InlineData("deactivate")]
@@ -82,8 +72,6 @@ public class NotificationsTests(ApiFactory factory)
         await WaitForNotificationAsync(owner, "EmployeeAwaitingApproval", worker.Id, n => n.GetProperty("isRead").GetBoolean());
     }
 
-    // ---------- Повтор погашенного refresh token ----------
-
     [Fact]
     public async Task RefreshTokenReuse_CreatesSessionReuseDetected()
     {
@@ -91,7 +79,6 @@ public class NotificationsTests(ApiFactory factory)
         var worker = await factory.CreateEmployeeAsync(_client, owner, UserRole.Worker, fullName: "Козлов Кирилл");
         var first = await _client.LoginForRefreshTokenAsync(worker.Phone);
         var second = (await _client.RefreshAsync(first)).RefreshToken();
-        // выданный взамен токен уже использован: старым пользуется кто-то второй
         Assert.Equal(HttpStatusCode.OK, (await _client.RefreshAsync(second)).StatusCode);
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await _client.RefreshAsync(first)).StatusCode);
@@ -100,9 +87,6 @@ public class NotificationsTests(ApiFactory factory)
         Assert.Equal("Козлов Кирилл", notification.GetProperty("userName").GetString());
     }
 
-    // ---------- Подозрительная синхронизация ----------
-
-    // В flags — только новые записи с флагами, отличными от VALID
     [Fact]
     public async Task SyncWithFlaggedRecords_CreatesSuspiciousSync()
     {
@@ -150,8 +134,6 @@ public class NotificationsTests(ApiFactory factory)
 
         Assert.DoesNotContain(await GetNotificationsAsync(owner), n => n.GetProperty("type").GetString() == "SuspiciousSync");
     }
-
-    // ---------- Список и отметка о прочтении ----------
 
     // Новые сверху
     [Fact]
@@ -204,7 +186,6 @@ public class NotificationsTests(ApiFactory factory)
         Assert.True((await response.ReadJsonAsync()).GetProperty("errors").TryGetProperty("id", out _));
     }
 
-    // Компании изолированы: чужих уведомлений не видно, отметить чужое нельзя (404, неотличимо от несуществующего)
     [Fact]
     public async Task OtherCompany_IsIsolated()
     {
@@ -248,7 +229,7 @@ public class NotificationsTests(ApiFactory factory)
         }
     }
 
-    // Действие, которое точно создаёт уведомление, — после него все ранее отправленные события уже обработаны
+    // Контрольное событие отмечает конец очереди.
     private async Task Barrier(TestUser owner)
     {
         var employee = await factory.CreateEmployeeAsync(_client, owner, UserRole.Worker, fullName: "Барьер", isApproved: false);

@@ -1,11 +1,3 @@
-/**
- * Сквозной сценарий AccountThis на живом локальном стеке:
- * React (nginx) -> ASP.NET API -> PostgreSQL, outbox -> RabbitMQ -> Worker (аудит, уведомления).
- *
- * У каждого человека свой браузерный контекст (как отдельный телефон/компьютер). Камера виртуальная
- * (helpers/fakeCamera.ts): ей показывают PNG наклейки, скачанный у владельца, или скриншот QR
- * с экрана сотрудника. Тесты идут по порядку и опираются на результат предыдущих.
- */
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { errorAlert, openSettled, loginOk, login, makeRunData, openAs, register, row, type Person } from '../helpers/app';
@@ -32,13 +24,12 @@ test.afterAll(async () => {
   for (const a of [owner, issuer, worker, worker2]) await a?.context.close();
 });
 
-/* ------------------------------------------------------------------ helpers */
+// helpers
 
 async function gotoNav(page: Page, label: string) {
   await page.getByRole('link', { name: label }).or(page.getByRole('button', { name: label, exact: true })).first().click();
 }
 
-/** Owner: скачать PNG-наклейку инструмента через «Печать/Загрузка наклеек». */
 async function downloadSticker(toolName: string): Promise<Buffer> {
   const page = owner.page;
   await page.goto('/tools');
@@ -52,7 +43,6 @@ async function downloadSticker(toolName: string): Promise<Buffer> {
   return png;
 }
 
-/** Worker: сканирует наклейку -> выбирает действие и состояние -> получает QR на экране. */
 async function workerCreatesQr(
   w: Actor,
   toolName: string,
@@ -80,7 +70,6 @@ async function workerCreatesQr(
   return qr.screenshot();
 }
 
-/** Issuer: открывает сканер и «показывает» камере картинку. */
 async function issuerScans(png: Buffer) {
   const page = issuer.page;
   if (!page.url().endsWith('/scan')) {
@@ -91,7 +80,7 @@ async function issuerScans(png: Buffer) {
   await showToCamera(page, png);
 }
 
-/* -------------------------------------------------------- 1. Вход и регистрация */
+// 1. Вход и регистрация
 
 test('1.1 Гость: защищённые страницы перенаправляют на /login', async () => {
   for (const url of ['/overview', '/tools', '/users', '/journal']) {
@@ -99,7 +88,6 @@ test('1.1 Гость: защищённые страницы перенаправ
     await expect(owner.page).toHaveURL(/\/login$/);
   }
   await expect(owner.page.getByRole('heading', { name: 'Вход' })).toBeVisible();
-  // Автоперевод браузера ломает React (insertBefore): страница объявлена русской и запрещена к переводу
   const html = owner.page.locator('html');
   await expect(html).toHaveAttribute('lang', 'ru');
   await expect(html).toHaveAttribute('translate', 'no');
@@ -157,8 +145,6 @@ test('1.6 Сбой из-за переводчика браузера: вмест
   await page.goto('/login');
   await expect(page.getByRole('button', { name: 'Войти' })).toBeVisible();
 
-  // Делаем то же, что Google Translate: каждый текстовый узел заменяется элементом <font> с текстом.
-  // React об этом не знает, и при следующей вставке узла падает на insertBefore — как в присланном отчёте
   await page.evaluate(() => {
     const walker = document.createTreeWalker(document.getElementById('root')!, NodeFilter.SHOW_TEXT);
     const nodes: Text[] = [];
@@ -185,7 +171,7 @@ test('1.6 Сбой из-за переводчика браузера: вмест
   await context.close();
 });
 
-/* ------------------------------------------------------------ 2. Пользователи */
+// 2. Пользователи
 
 test('2.1 Владелец видит id компании на странице «Пользователи»', async () => {
   const page = owner.page;
@@ -288,7 +274,7 @@ test('2.8 Роли: каждый входит и видит только сво�
   await expect(owner.page).toHaveURL(/\/overview$/);
 });
 
-/* ------------------------------------------------------------- 3. Инструменты */
+// 3. Инструменты
 
 test('3.1 Владелец добавляет инструменты, проверка пустого названия', async () => {
   const page = owner.page;
@@ -336,7 +322,7 @@ test('3.4 Владелец скачивает PNG-наклейки с QR', async
   }
 });
 
-/* --------------------------------------------------- 4. Выдача и возврат по QR */
+// 4. Выдача и возврат по QR
 
 let takeQr: Buffer;
 
@@ -396,7 +382,6 @@ test('4.5 Возврат с повреждением: предупреждени
   const dlg = issuer.page.getByRole('dialog', { name: 'Возврат инструмента' });
   await expect(dlg).toContainText(P.worker.fullName);
   await expect(dlg).toContainText(/Поврежд[её]н/);
-  // в реестре инструмент «исправен», сотрудник указал «поврежден» — завхоза предупреждают
   await expect(dlg.getByText(/Осмотрите инструмент/)).toBeVisible();
   await dlg.getByRole('button', { name: 'Подтвердить' }).click();
   await expect(issuer.page.getByText(`Принято: ${D.tool1}`)).toBeVisible();
@@ -420,7 +405,6 @@ test('4.6 Отклонение операции завхозом ничего н
   const dlg = issuer.page.getByRole('dialog', { name: 'Выдача инструмента' });
   await expect(dlg).toBeVisible();
 
-  // Наблюдение (не проверка): что будет, если QR остаётся в кадре после «Отклонить»
   await dlg.getByRole('button', { name: 'Отклонить' }).click();
   await issuer.page.waitForTimeout(1_500);
   const reopened = await dlg.isVisible();
@@ -450,7 +434,6 @@ test('4.6 Отклонение операции завхозом ничего н
 });
 
 test('4.7 Просроченный QR (прошло 2 минуты, завхоз без сети) отклоняется', async ({ browser }) => {
-  // Отдельный телефон завхоза с управляемыми часами, чтобы не сдвигать время основному
   const late = await openAs(browser, 'phone');
   await late.page.clock.install();
   await loginOk(late.page, P.issuer);
@@ -459,8 +442,6 @@ test('4.7 Просроченный QR (прошло 2 минуты, завхоз
 
   const qr = await workerCreatesQr(worker, D.tool2, { action: 'Беру', condition: 'Исправен' });
   await late.page.goto('/scan');
-  // Без сети: иначе приложение заново сверит часы с сервером и сдвиг пропадёт (так и задумано).
-  // Получается «QR показали через 2 минуты после создания».
   await late.context.setOffline(true);
   await late.page.clock.fastForward('02:00');
   await showToCamera(late.page, qr);
@@ -470,7 +451,7 @@ test('4.7 Просроченный QR (прошло 2 минуты, завхоз
   await late.context.close();
 });
 
-/* ------------------------------------------------------- 5. Работа без сети */
+// 5. Работа без сети
 
 let offlineQr: Buffer;
 
@@ -492,7 +473,6 @@ test('5.1 Без сети у обоих: сотрудник делает QR, з�
   await worker.page.getByRole('button', { name: 'Завхоз принял' }).click();
   await expect(worker.page.getByRole('button', { name: new RegExp(D.tool2) })).toBeVisible();
 
-  // Завхоз: запись есть локально, но не отправлена; на сервере инструмент ещё «на месте»
   await issuer.page.getByRole('link', { name: 'Обзор' }).first().click();
   await expect(issuer.page.getByText('Не отправлена').first()).toBeVisible();
   await owner.page.goto('/tools');
@@ -512,10 +492,9 @@ test('5.2 Сеть вернулась: журнал завхоза уходит 
   }).toPass({ timeout: 30_000 });
 });
 
-/* ------------------------------------------- 6. Увольнение и подозрительная запись */
+// 6. Увольнение и подозрительная запись
 
 test('6.1 Увольнение: уволенный теряет доступ', async () => {
-  // Пока работает, второй сотрудник успевает получить сертификат и сделать QR на возврат... нет, на выдачу
   await worker2.page.goto('/overview');
   await expect(worker2.page.getByText(/QR-коды без интернета/)).toBeVisible();
 
@@ -536,7 +515,6 @@ test('6.1 Увольнение: уволенный теряет доступ', a
 });
 
 test('6.2 Уволенный без сети показывает QR — завхоз принимает, сервер помечает запись подозрительной', async () => {
-  // Сертификат у уволенного на телефоне ещё действует: офлайн завхоз проверить увольнение не может
   await worker2.context.setOffline(true);
   const qr = await workerCreatesQr(worker2, D.tool1, { action: 'Беру', condition: 'Исправен' });
   await issuerScans(qr);
@@ -545,7 +523,6 @@ test('6.2 Уволенный без сети показывает QR — зав�
   await dlg.getByRole('button', { name: 'Подтвердить' }).click();
   await expect(issuer.page.getByText(`Выдано: ${D.tool1}`)).toBeVisible();
 
-  // запись уходит на сервер, сервер ставит флаг, worker создаёт уведомление владельцу
   await expect(async () => {
     await openSettled(owner.page, '/overview');
     await expect(owner.page.getByText('Подозрительная синхронизация').first()).toBeVisible({ timeout: 3_000 });
@@ -563,7 +540,7 @@ test('6.3 Открытая сессия уволенного обрываетс�
   await expect(worker2.page).toHaveURL(/\/login$/, { timeout: 20_000 });
 });
 
-/* ------------------------------------------------------ 7. Профиль, пароль, выход */
+// 7. Профиль, пароль, выход
 
 test('7.1 Профиль показывает данные пользователя', async () => {
   await worker.page.goto('/profile');
@@ -624,7 +601,7 @@ test('7.4 Сессия переживает перезагрузку стран�
   await expect(row(owner.page, D.tool2)).toBeVisible();
 });
 
-/* ------------------------------------------------- 8. Карточка инструмента */
+// 8. Карточка инструмента
 
 test('8.1 Владелец меняет состояние и комментарий, затем списывает инструмент', async () => {
   const page = owner.page;
@@ -642,7 +619,7 @@ test('8.1 Владелец меняет состояние и комментар
   await expect(row(page, D.tool3)).toHaveCount(0);
 });
 
-/* ------------------------------------------------------- 9. Устойчивость сессии */
+// 9. Устойчивость сессии
 
 test('9.1 Потерянный ответ на обновление сессии не должен разлогинивать', async ({ browser, request }) => {
   const base = process.env.E2E_BASE_URL ?? 'http://localhost';
@@ -650,14 +627,11 @@ test('9.1 Потерянный ответ на обновление сессии
   await loginOk(page, P.owner);
   await openSettled(page, '/tools');
 
-  // Так бывает при F5 сразу после открытия страницы или на плохой сети: запрос POST /api/auth/refresh
-  // дошёл до сервера (тот выдал новый токен и отозвал старый), а ответ браузер не получил.
   const cookie = (await context.cookies()).find((c) => c.name === 'refresh_token');
   expect(cookie, 'refresh cookie в браузере').toBeTruthy();
   const lost = await request.post(`${base}/api/auth/refresh`, { headers: { Cookie: `refresh_token=${cookie!.value}` } });
   expect(lost.status()).toBe(200);
 
-  // Браузер по-прежнему со старым cookie — пользователь обновляет страницу
   await page.reload();
   await page.waitForLoadState('networkidle');
   test.info().annotations.push({ type: 'observation', description: `после перезагрузки открыт ${new URL(page.url()).pathname}` });

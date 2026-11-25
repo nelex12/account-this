@@ -6,9 +6,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// GET /api/users и POST /api/users/{id}/approve (роль Owner). Owner работает только с пользователями своей компании
-// (company_id из JWT): пользователь другой компании в списке не виден, а approve для него — 404 без изменений в БД.
-// Owner вызывает API с JWT из TestTokens, чтобы тесты не зависели от входа Owner.
 [Collection("Api")]
 public class UsersTests(ApiFactory factory)
 {
@@ -42,7 +39,6 @@ public class UsersTests(ApiFactory factory)
         Assert.False(firedJson.GetProperty("isActive").GetBoolean());
     }
 
-    // В ответе нет хеша пароля и других внутренних полей
     [Fact]
     public async Task GetUsers_ReturnsOnlyContractFields()
     {
@@ -95,7 +91,6 @@ public class UsersTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    // BOLA: id пользователя чужой компании известен, но подтвердить его нельзя — и он неотличим от несуществующего
     [Fact]
     public async Task Approve_UserOfAnotherCompany_Returns404AndDoesNotApprove()
     {
@@ -126,7 +121,6 @@ public class UsersTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    // Подтверждает только Owner: Issuer своей же компании получает 403, пользователь не подтверждается
     [Fact]
     public async Task Approve_ByIssuer_Returns403()
     {
@@ -142,8 +136,6 @@ public class UsersTests(ApiFactory factory)
         Assert.False((await _db.FindUserAsync(employee.Phone))!.IsApproved);
     }
 
-    // Весь путь через API, как его пройдёт клиент: Owner регистрируется и входит, берёт id компании,
-    // Worker и Issuer регистрируются по нему, Owner находит их в списке и подтверждает, все трое входят
     [Fact]
     public async Task FullFlow_OwnerApprovesEmployees_AllRolesLogIn()
     {
@@ -214,7 +206,6 @@ public class UsersTests(ApiFactory factory)
         return (await _db.FindUserAsync(phone))!;
     }
 
-    // Неподтверждённый — как после регистрации
     private async Task<UserRow> CreateEmployee(UserRow owner, UserRole role, string fullName = "Иванов Иван Иванович")
     {
         var phone = TestDb.UniquePhone();

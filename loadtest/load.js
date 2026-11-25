@@ -1,7 +1,3 @@
-// Нагрузочный тест прода (k6). Только открытые без входа запросы: тестовые пользователи есть лишь на локальной копии.
-// Запуск (из корня репозитория):
-//   docker run --rm -v "%cd%/loadtest:/scripts" -e RUN=run2 grafana/k6:1.3.0 run --out csv=/scripts/results/run2/raw.csv.gz /scripts/load.js
-// SMOKE=1 — короткая проверка одним пользователем вместо полного профиля.
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 
@@ -31,10 +27,8 @@ export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };
 
-// Сам k6 сжатие не запрашивает и качал бы JS-бандл несжатым (850 КБ вместо ~275 КБ); браузер всегда шлёт этот заголовок
 const params = (name, extra = {}) => ({ headers: { 'Accept-Encoding': 'gzip, deflate, br, zstd' }, tags: { name }, ...extra });
 
-// Имена бандлов меняются при каждой сборке, поэтому берём их из index.html
 function assets(html) {
   return [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
 }
@@ -44,7 +38,6 @@ export default function () {
     const res = http.get(`${BASE}/`, params('index'));
     check(res, { 'index 200': (r) => r.status === 200 });
     for (const a of assets(res.body || '')) {
-      // Браузер с кэшем перекачивает только мелкий CSS; JS-бандл (~275 КБ) качает каждый десятый — «новый» посетитель
       if (a.endsWith('.js') && Math.random() > 0.1) continue;
       const r = http.get(`${BASE}${a}`, params(a.endsWith('.js') ? 'asset-js' : 'asset-css'));
       check(r, { 'asset 200': (x) => x.status === 200 });
@@ -54,7 +47,6 @@ export default function () {
   group('api', () => {
     const key = http.get(`${BASE}/api/auth/server-key`, params('server-key'));
     check(key, { 'server-key 200': (r) => r.status === 200 && r.json('serverPublicKey') !== undefined });
-    // Защищённый эндпоинт без токена: проверяет, что backend под нагрузкой быстро отвечает 401, а не 5xx
     const tools = http.get(`${BASE}/api/tools`, params('tools-unauth', { responseCallback: http.expectedStatuses(401) }));
     check(tools, { 'tools 401': (r) => r.status === 401 });
   });

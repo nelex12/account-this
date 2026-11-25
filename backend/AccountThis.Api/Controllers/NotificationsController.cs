@@ -6,24 +6,19 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace AccountThis.Api.Controllers;
 
-// Уведомления Owner своей компании (company_id из JWT). Чужое уведомление неотличимо от несуществующего: 404.
 [ApiController]
 [Route("api/notifications")]
 [Authorize(Roles = "Owner")]
 public class NotificationsController(INotificationsService notificationsService) : ControllerBase
 {
-    /// <summary>
-    /// Последние 100 уведомлений компании, новые сверху. Создаются асинхронно (AccountThis.Worker по событиям RabbitMQ).
-    /// </summary>
+    /// <summary>Последние уведомления компании.</summary>
     [HttpGet]
     public async Task<ActionResult<List<Notification>>> GetNotifications(CancellationToken cancellationToken)
     {
         return await notificationsService.GetAsync(User.GetCompanyId(), cancellationToken);
     }
 
-    /// <summary>
-    /// Отметить уведомление прочитанным. Повторный вызов — 200.
-    /// </summary>
+    /// <summary>Отметка о прочтении.</summary>
     [HttpPost("{id}/read")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]

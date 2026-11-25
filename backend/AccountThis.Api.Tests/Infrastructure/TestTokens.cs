@@ -4,8 +4,6 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace AccountThis.Api.Tests.Infrastructure;
 
-// JWT, собранный прямо по api.yaml (claims sub / role / company_id, HS256), независимо от JwtTokenService:
-// так тесты middleware не зависят от того, правильно ли реализована выдача токена.
 public static class TestTokens
 {
     public static string Create(

@@ -11,14 +11,12 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Схему создаёт backend при старте (миграции), поэтому он ждёт, пока база начнёт принимать подключения
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 2s
       timeout: 3s
       retries: 30
 
-  # Брокер сообщений: backend отправляет события (из outbox), worker их потребляет (docs/events.md)
   rabbitmq:
     image: rabbitmq:4-management
     container_name: accountthis-rabbitmq
@@ -44,14 +42,11 @@ services:
       rabbitmq:
         condition: service_started
     environment:
-      # Строку подключения backend собирает сам из POSTGRES_* (как и при запуске из IDE).
-      # Внутри сети compose база доступна по имени сервиса postgres и порту 5432
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      # Внутри сети compose брокер доступен по имени сервиса rabbitmq и порту 5672
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: "5672"
       RABBITMQ_USER: ${RABBITMQ_USER}
@@ -64,9 +59,6 @@ services:
     ports:
       - "${BACKEND_PORT:-5000}:8080"
 
-  # Потребители событий: журнал аудита (audit_events) и уведомления Owner (notifications).
-  # Отдельный процесс: его остановка не мешает API, события ждут в очередях RabbitMQ.
-  # Таблицы создают миграции backend; пока их нет, worker возвращает сообщения в очередь и повторяет позже
   worker:
     build:
       context: ./backend

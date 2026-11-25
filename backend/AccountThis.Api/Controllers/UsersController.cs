@@ -6,16 +6,12 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace AccountThis.Api.Controllers;
 
-// Все методы, кроме GET /api/users/me, требуют роль: Owner — и работают только с пользователями его компании
-// (company_id из JWT). Пользователь другой компании неотличим от несуществующего: 404.
 [ApiController]
 [Route("api/users")]
 [Authorize]
 public class UsersController(IUsersService usersService) : ControllerBase
 {
-    /// <summary>
-    /// Свой профиль, любая роль: пользователь из JWT (sub) в его компании (company_id).
-    /// </summary>
+    /// <summary>Профиль пользователя.</summary>
     [HttpGet("me")]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<UserResponse>> GetMe(CancellationToken cancellationToken)
@@ -24,9 +20,7 @@ public class UsersController(IUsersService usersService) : ControllerBase
         return user is null ? UserNotFound(User.GetUserId()) : user;
     }
 
-    /// <summary>
-    /// Список пользователей своей компании (включая неподтверждённых и уволенных).
-    /// </summary>
+    /// <summary>Сотрудники компании.</summary>
     [HttpGet]
     [Authorize(Roles = "Owner")]
     public async Task<ActionResult<List<UserResponse>>> GetUsers(CancellationToken cancellationToken)
@@ -34,11 +28,7 @@ public class UsersController(IUsersService usersService) : ControllerBase
         return await usersService.GetUsersAsync(User.GetCompanyId(), cancellationToken);
     }
 
-    /// <summary>
-    /// Уволить/деактивировать пользователя своей компании (is_active = false). Повторный вызов — 200.
-    /// Гасит все refresh token пользователя (все сессии). Выданный access token действует до 15 минут,
-    /// офлайн-сертификат — до 12 часов (операции после увольнения получают WORKER_DEACTIVATED). 409 — попытка уволить самого себя.
-    /// </summary>
+    /// <summary>Деактивация сотрудника.</summary>
     [HttpDelete("{id}")]
     [Authorize(Roles = "Owner")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -59,9 +49,7 @@ public class UsersController(IUsersService usersService) : ControllerBase
         };
     }
 
-    /// <summary>
-    /// Подтверждение регистрации пользователя своей компании (is_approved = true). Повторный вызов — 200.
-    /// </summary>
+    /// <summary>Подтверждение регистрации.</summary>
     [HttpPost("{id}/approve")]
     [Authorize(Roles = "Owner")]
     [ProducesResponseType(StatusCodes.Status200OK)]

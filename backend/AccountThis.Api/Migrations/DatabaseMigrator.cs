@@ -2,15 +2,10 @@ using Npgsql;
 
 namespace AccountThis.Api.Migrations;
 
-// Миграции схемы БД: файлы Migrations/NNNN_описание.sql, встроены в сборку (см. csproj).
-// При старте приложения применяются по порядку имён те, которых ещё нет в schema_migrations,
-// каждая в своей транзакции вместе с записью о ней: упавшая миграция не оставляет схему наполовину изменённой.
-// Применённый файл не меняют — изменение схемы оформляется новым файлом со следующим номером.
 public static class DatabaseMigrator
 {
     private const string ResourcePrefix = "Migrations/";
 
-    // Произвольная константа: несколько экземпляров backend не применяют миграции одновременно
     private const long AdvisoryLockKey = 0x4163_6354_6869_73;
 
     public static async Task MigrateAsync(NpgsqlDataSource dataSource, ILogger logger, CancellationToken cancellationToken = default)

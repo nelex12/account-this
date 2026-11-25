@@ -6,8 +6,6 @@ using Npgsql;
 
 namespace AccountThis.Api.Services;
 
-// Либо запрос отклонён целиком (FormatErrors: номер записи → причина, ничего не сохранено),
-// либо все записи сохранены (Results — в порядке запроса)
 public sealed record SyncOutcome(IReadOnlyList<SyncResult> Results, IReadOnlyDictionary<int, string> FormatErrors)
 {
     public bool IsRejected => FormatErrors.Count > 0;
@@ -22,8 +20,6 @@ public interface ISyncService
     // companyId и issuerId — из JWT вызывающего завхоза
     Task<SyncOutcome> SyncAsync(Guid companyId, Guid issuerId, IReadOnlyList<SyncRecord?> records, CancellationToken cancellationToken);
 
-    // Журнал компании: rental_logs WHERE company_id = companyId.
-    // Новые сверху: qr_timestamp DESC, id DESC. toolId-фильтр не возвращает записи с tool_id = NULL
     Task<List<RentalLogEntry>> GetLogsAsync(Guid companyId, RentalAction? action, Guid? toolId, CancellationToken cancellationToken);
 }
 
@@ -36,17 +32,14 @@ public class SyncService(
     // TIME_DRIFT: |timestamp − scannedAt| больше этого значения
     private static readonly TimeSpan MaxScanDrift = TimeSpan.FromSeconds(60);
 
-    // TIME_DRIFT: timestamp или scannedAt позже момента приёма сервером больше чем на это значение
     private static readonly TimeSpan MaxFutureSkew = TimeSpan.FromMinutes(5);
 
     private sealed record WorkerRow(Guid Id, long? DeactivatedAt);
 
-    // Результат проверок записи: флаг и привязки (только проверенное и найденное в компании завхоза)
     private sealed record Verdict(ValidationFlag Flag, Guid? WorkerId, Guid? ToolId);
 
     public async Task<SyncOutcome> SyncAsync(Guid companyId, Guid issuerId, IReadOnlyList<SyncRecord?> records, CancellationToken cancellationToken)
     {
-        // 1. Сначала разбираются все строки: хоть одна не по формату — запрос отклоняется, ничего не сохраняется
         var payloads = new QrPayload[records.Count];
         var formatErrors = new Dictionary<int, string>();
         for (var i = 0; i < records.Count; i++)
@@ -78,11 +71,9 @@ public class SyncService(
 
         var now = timeProvider.GetUtcNow().ToUnixTimeSeconds();
 
-        // Все записи — одной транзакцией: либо сохранены все, либо ни одной
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
 
-        // Сотрудники и инструменты — только компании завхоза: чужие неотличимы от несуществующих
         var workers = await LoadWorkersAsync(conn, transaction, companyId, payloads.Select(p => p.TokenData.WorkerId), cancellationToken);
         var tools = await LoadToolsAsync(conn, transaction, companyId, payloads.Select(p => p.Operation.ToolId), cancellationToken);
 
@@ -94,7 +85,6 @@ public class SyncService(
             var scannedAt = records[i]!.ScannedAt!.Value;
             var payload = payloads[i];
 
-            // Повторная отправка той же записи (обрыв связи) — возвращается уже сохранённая
             var existing = await FindResendAsync(conn, transaction, issuerId, scannedAt, qr, cancellationToken);
             if (existing is not null)
             {
@@ -113,8 +103,6 @@ public class SyncService(
             var logId = await TryInsertAsync(conn, transaction, companyId, issuerId, verdict, flag, payload, qr, scannedAt, now, cancellationToken);
             if (logId is null)
             {
-                // Конфликт уникальности. Либо ту же запись в это время сохранил параллельный запрос (повторная отправка),
-                // либо параллельный запрос первым сохранил VALID-запись с той же подписью — тогда эта запись дубль
                 existing = await FindResendAsync(conn, transaction, issuerId, scannedAt, qr, cancellationToken);
                 if (existing is not null)
                 {
@@ -127,7 +115,6 @@ public class SyncService(
                     ?? throw new InvalidOperationException("Запись журнала не сохранена: конфликт уникальности после пометки DUPLICATE");
             }
 
-            // Поздно синхронизированная старая операция не перезаписывает более свежее состояние инструмента
             if (flag == ValidationFlag.VALID)
             {
                 await UpdateToolConditionAsync(conn, transaction, companyId, payload.Operation, cancellationToken);
@@ -137,7 +124,6 @@ public class SyncService(
             createdFlags[flag.ToString()] = createdFlags.GetValueOrDefault(flag.ToString()) + 1;
         }
 
-        // Только повторно отправленные записи ничего не меняют — события нет
         if (createdFlags.Count > 0)
         {
             await eventOutbox.AddAsync(conn, transaction, EventTypes.RentalSynced, companyId, issuerId, new
@@ -153,9 +139,7 @@ public class SyncService(
         return SyncOutcome.Saved(results);
     }
 
-    // Проверки в порядке ValidationFlag, флаг — по первой непройденной.
-    // Привязки считаются независимо от флага: worker — если подпись сервера верна и сотрудник есть в компании,
-    // tool — если верны обе подписи и инструмент есть в реестре компании
+    // Первый сбой определяет флаг.
     private Verdict Verify(QrPayload payload, long scannedAt, long now,
         IReadOnlyDictionary<Guid, WorkerRow> workers, IReadOnlySet<Guid> tools)
     {
@@ -189,7 +173,6 @@ public class SyncService(
     private static bool IsTimeDrift(long timestamp, long scannedAt, long now)
     {
         var maxFuture = now + (long)MaxFutureSkew.TotalSeconds;
-        // Разность в decimal: значения из QR произвольные, long - long мог бы переполниться
         return Math.Abs((decimal)timestamp - scannedAt) > (decimal)MaxScanDrift.TotalSeconds
             || timestamp > maxFuture
             || scannedAt > maxFuture;
@@ -198,7 +181,6 @@ public class SyncService(
     private static async Task<Dictionary<Guid, WorkerRow>> LoadWorkersAsync(
         NpgsqlConnection conn, NpgsqlTransaction transaction, Guid companyId, IEnumerable<Guid> ids, CancellationToken cancellationToken)
     {
-        // Уволенные тоже загружаются: их операции получают WORKER_DEACTIVATED, а не UNKNOWN_WORKER
         await using var cmd = new NpgsqlCommand(
             "SELECT id, deactivated_at FROM users WHERE company_id = @companyId AND id = ANY(@ids)",
             conn,
@@ -237,8 +219,6 @@ public class SyncService(
         return tools;
     }
 
-    // Поиск по uq_rental_logs_resend (issuer_id, scanned_at, md5(signed_payload)); полная строка сверяется
-    // дополнительно, чтобы совпадение md5 не выдало чужую запись
     private static async Task<SyncResult?> FindResendAsync(
         NpgsqlConnection conn, NpgsqlTransaction transaction, Guid issuerId, long scannedAt, string qr, CancellationToken cancellationToken)
     {
@@ -271,8 +251,6 @@ public class SyncService(
         return (bool)(await cmd.ExecuteScalarAsync(cancellationToken))!;
     }
 
-    // null — конфликт уникального индекса (повторная отправка или вторая VALID-запись с той же подписью).
-    // ON CONFLICT DO NOTHING не прерывает транзакцию, в отличие от исключения 23505
     private static async Task<int?> TryInsertAsync(
         NpgsqlConnection conn, NpgsqlTransaction transaction, Guid companyId, Guid issuerId, Verdict verdict, ValidationFlag flag,
         QrPayload payload, string qr, long scannedAt, long now, CancellationToken cancellationToken)
@@ -321,7 +299,6 @@ public class SyncService(
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand { Connection = conn };
 
-        // Имена — из users/tools, если привязка заполнена; иначе — из непроверенных значений строки QR (signed_payload)
         var sql =
             "SELECT r.id, r.tool_id, t.name, r.worker_id, u.full_name, r.issuer_id, r.action::text, r.tool_condition::text, " +
             "r.qr_timestamp, r.scanned_at, r.validation_flag::text, r.created_at, r.signed_payload " +
@@ -353,7 +330,6 @@ public class SyncService(
             var workerName = reader.IsDBNull(4) ? null : reader.GetString(4);
             if (toolName is null || workerName is null)
             {
-                // В журнал попадают только строки, прошедшие разбор, поэтому разбор здесь успешен
                 QrPayloadParser.TryParse(reader.GetString(12), out var payload, out _);
                 toolName ??= payload?.Operation.ToolName ?? string.Empty;
                 workerName ??= payload?.TokenData.Fio ?? string.Empty;

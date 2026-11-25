@@ -5,8 +5,6 @@ using Npgsql;
 
 namespace AccountThis.Api.Tests.Api;
 
-// Migrations/*.sql применяются при старте приложения. Каждый тест — на своей пустой базе в контейнере ApiFactory,
-// чтобы не зависеть от базы, которую уже смигрировало приложение.
 [Collection("Api")]
 public class MigrationsTests(ApiFactory factory)
 {
@@ -21,7 +19,6 @@ public class MigrationsTests(ApiFactory factory)
         Assert.True(await Scalar<bool>(dataSource, "SELECT to_regclass('public.users') IS NOT NULL"));
     }
 
-    // Повторный старт приложения ничего не применяет заново
     [Fact]
     public async Task SecondRun_AppliesNothing()
     {
@@ -34,7 +31,6 @@ public class MigrationsTests(ApiFactory factory)
         Assert.Equal(before, await AppliedVersions(dataSource));
     }
 
-    // База из старого init.sql: таблицы есть, истории миграций нет. Применять поверх нельзя — понятная ошибка
     [Fact]
     public async Task DatabaseWithoutMigrationHistory_FailsWithResetHint()
     {

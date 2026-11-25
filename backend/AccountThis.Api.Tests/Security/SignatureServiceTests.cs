@@ -3,7 +3,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Security;
 
-// Ed25519 по RFC 8032; ключи и подписи — base64url без паддинга (api.yaml, «Формат QR и подписей»)
 public class SignatureServiceTests
 {
     private readonly SignatureService _service = new(TestKeys.Configuration());
@@ -19,7 +18,6 @@ public class SignatureServiceTests
     [InlineData("AT1-TOKEN.abc", TestKeys.SignatureOfTokenAbc)]
     public void SignWithServerKey_MatchesReferenceSignature(string message, string expected)
     {
-        // Ed25519 детерминирован: одно сообщение и один ключ всегда дают одну и ту же подпись
         Assert.Equal(expected, _service.SignWithServerKey(message));
     }
 
@@ -35,8 +33,6 @@ public class SignatureServiceTests
         Assert.False(_service.Verify(TestKeys.ServerPublicKey, "AT1-TOKEN.abd", TestKeys.SignatureOfTokenAbc));
     }
 
-    // В /api/sync ключи и подписи приходят из QR, то есть от клиента. Мусор — это флаг INVALID_*_SIG,
-    // а не исключение и 500 на весь запрос.
     [Theory]
     [InlineData("not-base64!!", TestKeys.SignatureOfTokenAbc)]
     [InlineData(TestKeys.ServerPublicKey, "not-base64!!")]
@@ -53,7 +49,6 @@ public class SignatureServiceTests
     {
         var pair = _service.GenerateKeyPair();
 
-        // 32 байта в base64url без паддинга — ровно 43 символа
         Assert.Matches("^[A-Za-z0-9_-]{43}$", pair.PrivateKey);
         Assert.Matches("^[A-Za-z0-9_-]{43}$", pair.PublicKey);
     }
@@ -63,7 +58,6 @@ public class SignatureServiceTests
     {
         var pair = _service.GenerateKeyPair();
 
-        // Сервис, у которого ключом сервера стал сгенерированный приватный ключ, должен вывести тот же публичный
         var withGeneratedKey = new SignatureService(TestKeys.Configuration(pair.PrivateKey));
 
         Assert.Equal(pair.PublicKey, withGeneratedKey.ServerPublicKey);

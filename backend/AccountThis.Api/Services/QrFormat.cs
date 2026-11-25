@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.WebUtilities;
 
 namespace AccountThis.Api.Services;
 
-// Протокол QR сотрудника: "AT1.<token>.<serverSignature>.<op>.<workerSignature>" (OfflineRentalPayload в api.yaml)
 public static class QrFormat
 {
     public const string Version = "AT1";
@@ -14,7 +13,6 @@ public static class QrFormat
     // Подпись сервера ставится над TokenSignaturePrefix + token
     public const string TokenSignaturePrefix = "AT1-TOKEN.";
 
-    // Подпись сотрудника ставится над OperationSignaturePrefix + token + "." + serverSignature + "." + op
     public const string OperationSignaturePrefix = "AT1-OP.";
 
     public static readonly TimeSpan CertificateLifetime = TimeSpan.FromHours(12);
@@ -29,8 +27,7 @@ public static class QrFormat
         OperationSignaturePrefix + token + "." + serverSignature + "." + op;
 }
 
-// Разобранная строка QR. Исходные строки частей сохраняются: подписи проверяются над ними в том виде,
-// в каком они пришли, JSON заново не сериализуется.
+// Подписи проверяются по исходным строкам QR.
 public sealed record QrPayload(
     string Token,
     string ServerSignature,
@@ -43,8 +40,6 @@ public static partial class QrPayloadParser
 {
     private const string ErrorPrefix = "Строка не соответствует формату AT1: ";
 
-    // Строгий разбор по правилам OfflineRentalPayload. error — текст для ValidationProblemDetails,
-    // например "Строка не соответствует формату AT1: ожидается 5 частей через точку".
     public static bool TryParse(
         string qr,
         [NotNullWhen(true)] out QrPayload? payload,
@@ -133,7 +128,6 @@ public static partial class QrPayloadParser
         };
     }
 
-    // base64url без паддинга: только A–Z a–z 0–9 - _, длина не даёт «лишнего» символа (n % 4 == 1)
     private static byte[] DecodeBase64Url(string value, string name)
     {
         if (value.Length == 0 || !Base64UrlRegex().IsMatch(value) || value.Length % 4 == 1)
@@ -166,7 +160,7 @@ public static partial class QrPayloadParser
         return document;
     }
 
-    // Поле обязательно и указано ровно один раз: при повторе разные стороны могли бы прочитать разные значения
+    // Дубликаты ключей делают подпись неоднозначной.
     private static JsonElement GetField(JsonElement root, string objectName, string field)
     {
         JsonElement? found = null;
@@ -197,7 +191,6 @@ public static partial class QrPayloadParser
         return value.GetString()!;
     }
 
-    // Целое — JSON-число без дробной части и экспоненты (1.0 и 1e3 не принимаются)
     private static long GetInteger(JsonElement root, string objectName, string field)
     {
         var value = GetField(root, objectName, field);
@@ -220,7 +213,6 @@ public static partial class QrPayloadParser
         return Guid.ParseExact(value, "D");
     }
 
-    // Строго по имени значения с учётом регистра; числа и другие регистры не принимаются
     private static TEnum GetEnum<TEnum>(JsonElement root, string objectName, string field) where TEnum : struct, Enum
     {
         var value = GetString(root, objectName, field);

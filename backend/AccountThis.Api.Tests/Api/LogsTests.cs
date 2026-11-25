@@ -5,8 +5,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// GET /api/logs (роли Issuer, Owner): журнал своей компании, новые сверху (qrTimestamp DESC, затем id DESC),
-// записи со всеми флагами; фильтры action и toolId.
 [Collection("Api")]
 public class LogsTests(ApiFactory factory)
 {
@@ -38,7 +36,6 @@ public class LogsTests(ApiFactory factory)
         Assert.InRange(entry.GetProperty("createdAt").GetInt64(), now - 5, now + 60);
     }
 
-    // Имя из реестра, а не из QR, когда инструмент привязан
     [Fact]
     public async Task BoundTool_NameComesFromRegistry()
     {
@@ -52,7 +49,6 @@ public class LogsTests(ApiFactory factory)
         Assert.Equal(company.Worker.FullName, entry.GetProperty("workerName").GetString());
     }
 
-    // Новые сверху по времени операции, а не по порядку синхронизации; при равном времени — позже сохранённая выше
     [Fact]
     public async Task Entries_AreOrderedByQrTimestampThenIdDescending()
     {
@@ -117,7 +113,6 @@ public class LogsTests(ApiFactory factory)
         Assert.Equal("GIVE", Assert.Single(gives).GetProperty("action").GetString());
     }
 
-    // Записи с toolId = null в выборку по инструменту не попадают
     [Fact]
     public async Task FilterByTool()
     {
@@ -182,7 +177,6 @@ public class LogsTests(ApiFactory factory)
         return new Company(owner, issuer, worker, toolId);
     }
 
-    // id сохранённых записей в порядке запроса
     private async Task<int[]> Sync(Company company, params (string Qr, long ScannedAt)[] records)
     {
         var response = await _client.SendAs(company.Issuer, HttpMethod.Post, "/api/sync",

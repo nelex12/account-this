@@ -2,16 +2,12 @@
 
 namespace AccountThis.Api.Models;
 
-// Телефон — российский номер. На входе допускаются префиксы +7, 7 или 8, затем ровно 10 цифр (только 0–9),
-// между ними — пробелы, скобки и дефисы. Сервер нормализует номер к виду +7XXXXXXXXXX (оставляет цифры,
-// первую заменяет на +7) и дальше работает только с ним: хранение, уникальность, вход, ответы API.
 public static class PhoneFormat
 {
     public const string InputPattern = @"^[\s()-]*(\+7|7|8)(?:[\s()-]*[0-9]){10}[\s()-]*$";
 
     public const string ErrorMessage = "Телефон должен быть российским номером: +7XXXXXXXXXX, 8XXXXXXXXXX или 7XXXXXXXXXX";
 
-    // Вход уже проверен по InputPattern: ровно 11 цифр, первая — 7 или 8
     public static string Normalize(string phone)
     {
         var digits = new string(phone.Where(char.IsAsciiDigit).ToArray());
@@ -19,18 +15,13 @@ public static class PhoneFormat
     }
 }
 
-// components.schemas.RegisterRequest
-// Компания задаётся по роли: Owner создаёт новую (CompanyName), Worker и Issuer присоединяются к существующей (CompanyId).
-// Списка компаний нет: Owner сообщает сотрудникам и завхозам id своей компании (GET /api/companies/my).
 public class RegisterRequest : IValidatableObject
 {
-    // Не длиннее 100 символов: ФИО попадает в QR сотрудника (fio в token)
     [Required]
     [MaxLength(100)]
     [NoNullCharacter]
     public string FullName { get; set; } = string.Empty;
 
-    // Любой допустимый формат (см. PhoneFormat), сохраняется нормализованным
     [Required]
     [RegularExpression(PhoneFormat.InputPattern, ErrorMessage = PhoneFormat.ErrorMessage)]
     public string Phone { get; set; } = string.Empty;
@@ -38,21 +29,15 @@ public class RegisterRequest : IValidatableObject
     [Required]
     public string Password { get; set; } = string.Empty;
 
-    // Nullable, чтобы [Required] срабатывал: у ненулевого enum пропуск молча превратился бы в Worker.
     [Required]
     public UserRole? Role { get; set; }
 
-    // Только Worker и Issuer (обязателен): id существующей компании, который сообщил её Owner
     public Guid? CompanyId { get; set; }
 
-    // Только Owner (обязателен): название новой компании, не длиннее 100 символов. Не уникально.
-    // Owner становится первым пользователем компании и подтверждается сразу.
     [MaxLength(100)]
     [NoNullCharacter]
     public string? CompanyName { get; set; }
 
-    // Взаимосвязь полей зависит от роли. Если Role не передана, это ошибка [Required] — здесь не дублируется.
-    // Имена полей — как в JSON: они становятся ключами errors в ответе 400
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         switch (Role)
@@ -89,7 +74,6 @@ public class RegisterRequest : IValidatableObject
 // components.schemas.LoginRequest
 public class LoginRequest
 {
-    // Любой допустимый формат (см. PhoneFormat), перед поиском нормализуется
     [Required]
     [RegularExpression(PhoneFormat.InputPattern, ErrorMessage = PhoneFormat.ErrorMessage)]
     public string Phone { get; set; } = string.Empty;
@@ -98,9 +82,6 @@ public class LoginRequest
     public string Password { get; set; } = string.Empty;
 }
 
-// components.schemas.ChangePasswordRequest
-// Пароль только хешируется и в БД как есть не попадает, поэтому, как и при регистрации, ограничений кроме
-// «не пустой и не только из пробелов» ([Required]) нет
 public class ChangePasswordRequest : IValidatableObject
 {
     [Required]
@@ -109,7 +90,6 @@ public class ChangePasswordRequest : IValidatableObject
     [Required]
     public string NewPassword { get; set; } = string.Empty;
 
-    // Имя поля — как в JSON: оно становится ключом errors в ответе 400
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (NewPassword == CurrentPassword)
@@ -138,13 +118,8 @@ public class ServerKeyResponse
     public long ServerTime { get; set; }
 }
 
-// components.schemas.ServerSignedToken
-// Содержимое token из WorkerCertificate (base64url → UTF-8 JSON). Сервер удостоверяет подписью,
-// что WorkerPublicKey принадлежит сотруднику WorkerId до момента ExpiresAt.
-// Сама подпись передаётся отдельно (WorkerCertificate.ServerSignature) и ставится над строкой token.
 public class ServerSignedToken
 {
-    // UUID пользователя в каноническом виде (строчные hex, 8-4-4-4-12)
     public Guid WorkerId { get; set; }
 
     public string Fio { get; set; } = string.Empty;
@@ -159,8 +134,6 @@ public class ServerSignedToken
     public string WorkerPublicKey { get; set; } = string.Empty;
 }
 
-// components.schemas.WorkerCertificate
-// Сертификат = Token + ServerSignature. Клиент хранит и использует обе строки в точности как получены.
 public class WorkerCertificate
 {
     // base64url(UTF-8 JSON ServerSignedToken)

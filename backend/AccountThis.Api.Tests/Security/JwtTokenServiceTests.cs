@@ -7,10 +7,8 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace AccountThis.Api.Tests.Security;
 
-// Контракт из api.yaml, раздел «Авторизация»: claims sub / role / company_id, HMAC-SHA256 с JWT_SIGNING_KEY, 15 минут
 public class JwtTokenServiceTests
 {
-    // Время в будущем: если сервис возьмёт DateTime.UtcNow вместо TimeProvider, срок действия не совпадёт
     private static readonly DateTimeOffset Now = new(2030, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
     private static readonly Guid UserId = Guid.Parse("3f2b8c1e-0000-4000-8000-000000000001");

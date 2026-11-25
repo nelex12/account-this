@@ -10,26 +10,19 @@ public enum DeactivateUserStatus
     // В том числе повторный вызов для уже уволенного
     Deactivated,
 
-    // Нет такого пользователя в компании вызывающего (пользователь другой компании — тоже NotFound)
     NotFound,
     SelfDeactivation
 }
 
-// Owner работает только с пользователями своей компании: companyId — из JWT вызывающего Owner.
-// Пользователь другой компании неотличим от несуществующего.
 public interface IUsersService
 {
-    // Пользователь из JWT вызывающего (любая роль); null — его нет в этой компании
     Task<UserResponse?> GetMeAsync(Guid companyId, Guid userId, CancellationToken cancellationToken);
 
     // Все пользователи компании, включая неподтверждённых и уволенных
     Task<List<UserResponse>> GetUsersAsync(Guid companyId, CancellationToken cancellationToken);
 
-    // currentUserId — id вызывающего Owner (из JWT), чтобы запретить увольнение самого себя
     Task<DeactivateUserStatus> DeactivateAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken);
 
-    // false — пользователь не найден в компании; повторное подтверждение — true.
-    // currentUserId — id вызывающего Owner (из JWT), автор события user.approved
     Task<bool> ApproveAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken);
 }
 
@@ -39,7 +32,6 @@ public class UsersService(NpgsqlDataSource dataSource, IEventOutbox eventOutbox,
 
     public async Task<UserResponse?> GetMeAsync(Guid companyId, Guid userId, CancellationToken cancellationToken)
     {
-        // company_id в WHERE — та же изоляция, что и везде: id из токена ищется только в компании из токена
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand(
             $"SELECT {UserColumns} FROM users WHERE id = @id AND company_id = @companyId",
@@ -82,8 +74,6 @@ public class UsersService(NpgsqlDataSource dataSource, IEventOutbox eventOutbox,
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
 
-        // FOR UPDATE: параллельные увольнения одного пользователя идут по очереди, событие — одно.
-        // company_id в WHERE — пользователь чужой компании не найдётся (NotFound)
         bool wasActive;
         await using (var cmdFind = new NpgsqlCommand(
             "SELECT is_active FROM users WHERE id = @id AND company_id = @companyId FOR UPDATE",
@@ -101,7 +91,6 @@ public class UsersService(NpgsqlDataSource dataSource, IEventOutbox eventOutbox,
             wasActive = (bool)result;
         }
 
-        // Повторное увольнение момент увольнения не меняет: по нему /api/sync выставляет WORKER_DEACTIVATED
         if (wasActive)
         {
             await using var cmdDeactivate = new NpgsqlCommand(
@@ -113,7 +102,6 @@ public class UsersService(NpgsqlDataSource dataSource, IEventOutbox eventOutbox,
             await cmdDeactivate.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        // Гасятся все действующие refresh token — все сессии пользователя. Сессия = family_id
         int revokedSessions;
         await using (var cmdRevoke = new NpgsqlCommand(
             "WITH revoked AS (" +
@@ -139,8 +127,6 @@ public class UsersService(NpgsqlDataSource dataSource, IEventOutbox eventOutbox,
 
     public async Task<bool> ApproveAsync(Guid companyId, Guid currentUserId, Guid id, CancellationToken cancellationToken)
     {
-        // company_id в WHERE — защита от BOLA: пользователь чужой компании не найдётся (0 строк — 404).
-        // prev — значение до изменения (строка заблокирована FOR UPDATE): событие только если подтверждения ещё не было
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand(

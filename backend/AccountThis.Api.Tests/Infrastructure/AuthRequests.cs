@@ -7,7 +7,6 @@ using Microsoft.Net.Http.Headers;
 
 namespace AccountThis.Api.Tests.Infrastructure;
 
-// Готовые запросы к /api/auth, чтобы тесты описывали проверяемое поведение, а не сборку тел запросов
 public static class AuthRequests
 {
     public const string Password = "Correct-Horse-1";
@@ -23,7 +22,6 @@ public static class AuthRequests
             companyName,
         });
 
-    // Worker или Issuer, присоединяется к существующей компании
     public static Task<HttpResponseMessage> RegisterEmployeeAsync(
         this HttpClient client, UserRole role, Guid companyId, string phone, string fullName = "Иванов Иван Иванович") =>
         client.PostAsJsonAsync("/api/auth/register", new
@@ -38,23 +36,17 @@ public static class AuthRequests
     public static Task<HttpResponseMessage> LoginAsync(this HttpClient client, string phone, string password = Password) =>
         client.PostAsJsonAsync("/api/auth/login", new { phone, password });
 
-    // ---------- Refresh token в cookie ----------
-    // Клиент для этих тестов создаётся с HandleCookies = false (CookieClient): cookie передаются вручную,
-    // иначе HttpClient подставлял бы их сам и сохранял между запросами, а Secure-cookie по http не отправлял бы вовсе.
-
     public const string RefreshCookieName = "refresh_token";
 
     public static HttpClient CookieClient(this ApiFactory factory) =>
         factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
-    // refreshToken = null — запрос без cookie
     public static Task<HttpResponseMessage> RefreshAsync(this HttpClient client, string? refreshToken) =>
         client.SendAsync(WithRefreshCookie(HttpMethod.Post, "/api/auth/refresh", refreshToken));
 
     public static Task<HttpResponseMessage> LogoutAsync(this HttpClient client, string? refreshToken) =>
         client.SendAsync(WithRefreshCookie(HttpMethod.Post, "/api/auth/logout", refreshToken));
 
-    // Set-Cookie для refresh_token из ответа; null — ответ cookie не выставляет
     public static SetCookieHeaderValue? RefreshSetCookie(this HttpResponseMessage response)
     {
         if (!response.Headers.TryGetValues("Set-Cookie", out var values))
@@ -66,7 +58,6 @@ public static class AuthRequests
             .SingleOrDefault(c => c.Name.Value == RefreshCookieName);
     }
 
-    // Значение выставленного refresh token; тест падает, если cookie нет или это удаление
     public static string RefreshToken(this HttpResponseMessage response)
     {
         var cookie = response.RefreshSetCookie();
@@ -75,7 +66,6 @@ public static class AuthRequests
         return cookie.Value.Value!;
     }
 
-    // Удаление cookie по api.yaml (ClearRefreshCookie): пустое значение, тот же Path, срок истёк
     public static void AssertRefreshCookieCleared(this HttpResponseMessage response)
     {
         var cookie = response.RefreshSetCookie();
@@ -87,7 +77,6 @@ public static class AuthRequests
             "У удаляемой cookie срок должен истечь: Max-Age=0 или Expires в прошлом");
     }
 
-    // Вход, который должен пройти; возвращает refresh token из cookie
     public static async Task<string> LoginForRefreshTokenAsync(this HttpClient client, string phone)
     {
         var response = await client.LoginAsync(phone);
@@ -108,7 +97,6 @@ public static class AuthRequests
         return request;
     }
 
-    // Регистрация как подготовка теста: если она не прошла, тест падает здесь, с понятной причиной
     public static async Task EnsureCreated(this Task<HttpResponseMessage> registration)
     {
         var response = await registration;

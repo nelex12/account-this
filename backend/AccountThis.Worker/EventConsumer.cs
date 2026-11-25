@@ -5,9 +5,6 @@ using RabbitMQ.Client.Events;
 
 namespace AccountThis.Worker;
 
-// Общая часть потребителей (docs/events.md, «Потребители»): подключение к своей очереди с переподключением,
-// разбор конверта, подтверждение вручную после обработки. Наследник реализует только обработку события.
-// Повторная доставка возможна (сбой до ack, повторная отправка из outbox), поэтому обработка должна быть идемпотентной.
 public abstract class EventConsumer(IConfiguration configuration, ILogger logger) : BackgroundService
 {
     private const ushort Prefetch = 10;
@@ -16,7 +13,6 @@ public abstract class EventConsumer(IConfiguration configuration, ILogger logger
 
     protected abstract string Queue { get; }
 
-    // false — событие не по контракту своего типа (нет нужных полей): сообщение уходит в очередь отказов
     protected abstract Task<bool> HandleAsync(EventMessage message, CancellationToken cancellationToken);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -42,7 +38,6 @@ public abstract class EventConsumer(IConfiguration configuration, ILogger logger
 
                 logger.LogInformation("Потребитель очереди {Queue} подключён к RabbitMQ", Queue);
 
-                // Дальше работает сам клиент (в том числе восстанавливает соединение после обрыва)
                 await Task.Delay(Timeout.Infinite, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -105,7 +100,6 @@ public abstract class EventConsumer(IConfiguration configuration, ILogger logger
         }
         catch (Exception ex)
         {
-            // Ошибка в коде обработчика: без ack/nack сообщение осталось бы неподтверждённым и занимало место prefetch
             logger.LogError(ex, "Очередь {Queue}: событие {EventId} не обработано из-за ошибки", Queue, message.EventId);
             await RejectAsync(channel, delivery, "не обработано из-за ошибки");
             return;
@@ -120,7 +114,6 @@ public abstract class EventConsumer(IConfiguration configuration, ILogger logger
         await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false);
     }
 
-    // Отказ без возврата в очередь: сообщение уходит в events.dead (x-dead-letter-exchange очереди)
     private async Task RejectAsync(IChannel channel, BasicDeliverEventArgs delivery, string reason)
     {
         logger.LogWarning("Очередь {Queue}: сообщение {MessageId} {Reason}, отправлено в {DeadLetterQueue}",
@@ -128,7 +121,6 @@ public abstract class EventConsumer(IConfiguration configuration, ILogger logger
         await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: false);
     }
 
-    // Класс 22 — неверные данные, 23 — нарушение ограничения. Остальное (нет связи, нет таблицы до миграций) — временное
     private static bool IsDataError(PostgresException ex) =>
         ex.SqlState.StartsWith("22", StringComparison.Ordinal) || ex.SqlState.StartsWith("23", StringComparison.Ordinal);
 

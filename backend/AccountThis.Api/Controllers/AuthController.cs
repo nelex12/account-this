@@ -11,13 +11,7 @@ namespace AccountThis.Api.Controllers;
 [Route("api/auth")]
 public class AuthController(IAuthService authService) : ControllerBase
 {
-    /// <summary>
-    /// Регистрация нового пользователя любой роли. Owner создаёт новую компанию (companyName) и подтверждается сразу
-    /// (is_approved = true); Worker и Issuer присоединяются к существующей (companyId, который сообщил её Owner)
-    /// и ждут подтверждения Owner этой компании (is_approved = false).
-    /// Телефон нормализуется к +7XXXXXXXXXX и уникален (включая уволенных). Без авторизации.
-    /// 400 — не заполнены поля компании для роли или компании с таким companyId нет; 409 — телефон уже занят.
-    /// </summary>
+    /// <summary>Регистрация пользователя.</summary>
     [HttpPost("register")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status201Created)]
@@ -37,16 +31,11 @@ public class AuthController(IAuthService authService) : ControllerBase
         };
     }
 
-    /// <summary>
-    /// Вход в систему по телефону (нормализуется к +7XXXXXXXXXX) и паролю. Возвращает JWT на 15 минут,
-    /// refresh token на 30 дней — в cookie refresh_token.
-    /// 401 — неверный телефон/пароль; 403 — аккаунт не подтверждён или уволен. Без авторизации.
-    /// </summary>
+    /// <summary>Вход по телефону и паролю.</summary>
     [HttpPost("login")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
-    // 401/403 возвращает сам метод через Problem(...) — с телом ProblemDetails
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
@@ -74,9 +63,7 @@ public class AuthController(IAuthService authService) : ControllerBase
         };
     }
 
-    /// <summary>
-    /// Публичный ключ сервера (Ed25519) для оффлайн-верификации завхозом и время сервера. Без авторизации.
-    /// </summary>
+    /// <summary>Публичный ключ и время сервера.</summary>
     [HttpGet("server-key")]
     [AllowAnonymous]
     public ActionResult<ServerKeyResponse> GetServerKey()
@@ -84,14 +71,10 @@ public class AuthController(IAuthService authService) : ControllerBase
         return authService.GetServerKey();
     }
 
-    /// <summary>
-    /// Выдача временного сертификата (на 12 часов) и ключа сотруднику.
-    /// Выдаётся только подтверждённому и не уволенному (проверка по БД, иначе 403). Требуется роль: Worker.
-    /// </summary>
+    /// <summary>Выдача сертификата сотруднику.</summary>
     [HttpGet("worker-cert")]
     [Authorize(Roles = "Worker")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    // 401 и 403 по роли отдаёт проверка JWT без тела; 403 по is_approved/is_active (проверка по БД) — ProblemDetails
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<WorkerCertificate>> GetWorkerCert(CancellationToken cancellationToken)
     {
@@ -109,18 +92,13 @@ public class AuthController(IAuthService authService) : ControllerBase
         };
     }
 
-    // companyId — поле запроса, поэтому ошибка ключом companyId в ValidationProblemDetails (400), а не 404
     private ActionResult CompanyNotFound(Guid? companyId)
     {
         ModelState.AddModelError("companyId", "Компания с таким id не найдена");
         return ValidationProblem(ModelState);
     }
 
-    /// <summary>
-    /// Обмен refresh token из cookie на новую пару: access token в теле, refresh token в cookie (ротация).
-    /// Повторное предъявление погашенного токена завершает всю сессию.
-    /// 401 с удалением cookie — нет cookie, токен неизвестен, истёк, погашен или аккаунт уволен. Без JWT.
-    /// </summary>
+    /// <summary>Обновление токенов.</summary>
     [HttpPost("refresh")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -141,9 +119,7 @@ public class AuthController(IAuthService authService) : ControllerBase
         return TokenResponse(result.AccessToken!);
     }
 
-    /// <summary>
-    /// Выход: гасит сессию refresh token из cookie и удаляет cookie. Всегда 204, даже если сессии нет. Без JWT.
-    /// </summary>
+    /// <summary>Завершение сессии.</summary>
     [HttpPost("logout")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -154,17 +130,11 @@ public class AuthController(IAuthService authService) : ControllerBase
         return NoContent();
     }
 
-    /// <summary>
-    /// Смена пароля по текущему паролю. Гасит все сессии пользователя (все устройства) и начинает новую:
-    /// access token в теле, refresh token в cookie — устройство, с которого сменили пароль, остаётся в системе.
-    /// 400 — неверный текущий пароль (ключ currentPassword) или новый совпадает с текущим (ключ newPassword);
-    /// 403 — аккаунт уволен (проверка по БД). Любая роль.
-    /// </summary>
+    /// <summary>Смена пароля.</summary>
     [HttpPost("change-password")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
-    // 401 отдаёт проверка JWT без тела; 403 по is_active (проверка по БД) — ProblemDetails
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<LoginResponse>> ChangePassword(
         [FromBody] ChangePasswordRequest request, CancellationToken cancellationToken)
@@ -176,7 +146,6 @@ public class AuthController(IAuthService authService) : ControllerBase
                 SetRefreshCookie(result.RefreshToken!);
                 return TokenResponse(result.AccessToken!);
 
-            // Не 401: клиент принял бы его за истёкший access token и пошёл бы в /api/auth/refresh
             case ChangePasswordStatus.WrongCurrentPassword:
                 ModelState.AddModelError("currentPassword", "Неверный текущий пароль");
                 return ValidationProblem(ModelState);
@@ -193,7 +162,6 @@ public class AuthController(IAuthService authService) : ControllerBase
 
     private const string RefreshCookieName = "refresh_token";
 
-    // Браузер отправляет cookie только на /api/auth/* и только с того же сайта; JavaScript её не видит
     private static CookieOptions RefreshCookieOptions() => new()
     {
         Path = "/api/auth",
@@ -209,7 +177,6 @@ public class AuthController(IAuthService authService) : ControllerBase
         Response.Cookies.Append(RefreshCookieName, refreshToken, options);
     }
 
-    // Пустое значение и Expires в прошлом, с тем же Path — иначе браузер не сопоставит cookie
     private void ClearRefreshCookie() => Response.Cookies.Delete(RefreshCookieName, RefreshCookieOptions());
 
     private static LoginResponse TokenResponse(string accessToken) => new()

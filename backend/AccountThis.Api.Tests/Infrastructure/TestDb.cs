@@ -15,15 +15,10 @@ public sealed record UserRow(
     bool IsApproved,
     bool IsActive);
 
-// SQL в обход API. Нужен там, где API для этого ещё нет (подтверждение и увольнение — блок 4)
-// или его не видно снаружи (refresh token хранится хешем, его срок — 30 дней)
-// и чтобы проверить, что именно записалось в БД. Работает со схемой из миграций (AccountThis.Api/Migrations).
 public sealed class TestDb(string connectionString)
 {
-    // БД одна на весь прогон, поэтому каждому тесту — свой телефон
     private static int _phoneCounter = Random.Shared.Next(0, 100_000_000);
 
-    // Сразу в нормализованном виде +7XXXXXXXXXX
     public static string UniquePhone() => "+79" + Interlocked.Increment(ref _phoneCounter).ToString("D9");
 
     public async Task<Guid> CreateCompanyAsync(string name = "Тестовая компания")
@@ -50,7 +45,6 @@ public sealed class TestDb(string connectionString)
         return (long)(await cmd.ExecuteScalarAsync())!;
     }
 
-    // phone — нормализованный (+7XXXXXXXXXX)
     public async Task<UserRow?> FindUserAsync(string phone)
     {
         await using var conn = await OpenAsync();
@@ -78,7 +72,6 @@ public sealed class TestDb(string connectionString)
             reader.GetBoolean(7));
     }
 
-    // Увольнение в обход API выставляет и момент увольнения (CHECK в users), но refresh token не гасит
     public async Task SetUserFlagsAsync(Guid userId, bool isApproved, bool isActive)
     {
         await using var conn = await OpenAsync();
@@ -103,7 +96,6 @@ public sealed class TestDb(string connectionString)
         return value is DBNull or null ? null : (long)value;
     }
 
-    // Сдвигает момент увольнения в прошлое: так видно, перезаписал ли его повторный вызов
     public async Task ShiftDeactivatedAtAsync(Guid userId, TimeSpan back)
     {
         await using var conn = await OpenAsync();
@@ -115,9 +107,6 @@ public sealed class TestDb(string connectionString)
         Assert.True(updated == 1, "Подготовка теста: пользователь не уволен");
     }
 
-    // ---------- refresh_tokens ----------
-
-    // Сервер хранит SHA-256 токена; токен в cookie — base64url без паддинга
     public static byte[] RefreshTokenHash(string refreshToken) =>
         SHA256.HashData(Base64UrlEncoder.DecodeBytes(refreshToken));
 
@@ -138,7 +127,6 @@ public sealed class TestDb(string connectionString)
         return (bool)(await cmd.ExecuteScalarAsync())!;
     }
 
-    // Истечение срока без ожидания 30 дней: сдвигает срок токена в прошлое
     public async Task ExpireRefreshTokenAsync(string refreshToken)
     {
         await using var conn = await OpenAsync();
@@ -151,7 +139,6 @@ public sealed class TestDb(string connectionString)
         Assert.True(updated == 1, "Подготовка теста: refresh token не найден в refresh_tokens по SHA-256");
     }
 
-    // Ротация «давно»: сдвигает момент погашения токена в прошлое (за окно повторного предъявления)
     public async Task BackdateRefreshTokenRevocationAsync(string refreshToken, TimeSpan back)
     {
         await using var conn = await OpenAsync();
@@ -164,8 +151,6 @@ public sealed class TestDb(string connectionString)
         Assert.True(updated == 1, "Подготовка теста: погашенный refresh token не найден в refresh_tokens по SHA-256");
     }
 
-    // ---------- tools ----------
-
     public async Task<(string Condition, long ConditionUpdatedAt)> FindToolConditionAsync(Guid toolId)
     {
         await using var conn = await OpenAsync();
@@ -176,7 +161,6 @@ public sealed class TestDb(string connectionString)
         return (reader.GetString(0), reader.GetInt64(1));
     }
 
-    // Состояние инструмента выставлено «давно»: операции из /api/sync с недавним timestamp его обновляют
     public async Task BackdateToolConditionAsync(Guid toolId, TimeSpan back)
     {
         await using var conn = await OpenAsync();
@@ -187,8 +171,6 @@ public sealed class TestDb(string connectionString)
         Assert.True(await cmd.ExecuteNonQueryAsync() == 1, "Подготовка теста: инструмент не найден");
     }
 
-    // ---------- rental_logs ----------
-
     public async Task<long> CountRentalLogsAsync(Guid companyId)
     {
         await using var conn = await OpenAsync();
@@ -196,8 +178,6 @@ public sealed class TestDb(string connectionString)
         cmd.Parameters.AddWithValue("id", companyId);
         return (long)(await cmd.ExecuteScalarAsync())!;
     }
-
-    // ---------- audit_events ----------
 
     public sealed record AuditRow(Guid EventId, string Type, Guid CompanyId, Guid ActorId, long OccurredAt, JsonElement Data);
 
@@ -223,7 +203,6 @@ public sealed class TestDb(string connectionString)
         return rows;
     }
 
-    // Запись в audit_events асинхронная (RabbitMQ → потребитель), поэтому ждём с таймаутом
     public async Task<List<AuditRow>> WaitForAuditEventsAsync(Guid companyId, string type, int count = 1, int timeoutSeconds = 15)
     {
         var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
@@ -249,9 +228,6 @@ public sealed class TestDb(string connectionString)
         return (long)(await cmd.ExecuteScalarAsync())!;
     }
 
-    // ---------- outbox_events ----------
-
-    // Событие в outbox в обход сервисов и без NOTIFY: как оставшееся после сбоя
     public async Task InsertOutboxEventAsync(Guid eventId, string type, Guid companyId, Guid actorId, string data)
     {
         await using var conn = await OpenAsync();

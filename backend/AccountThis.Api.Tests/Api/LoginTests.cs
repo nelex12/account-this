@@ -9,9 +9,6 @@ using Microsoft.Net.Http.Headers;
 
 namespace AccountThis.Api.Tests.Api;
 
-// POST /api/auth/login — без авторизации. 200 + JWT на 15 минут в теле и refresh token в cookie;
-// 401 — неверный телефон или пароль;
-// 403 — не подтверждён или уволен (только при верном пароле, иначе статус чужого аккаунта раскрывается).
 [Collection("Api")]
 public class LoginTests(ApiFactory factory)
 {
@@ -36,11 +33,9 @@ public class LoginTests(ApiFactory factory)
         Assert.Equal(user.Id.ToString(), jwt.Payload.Sub);
         Assert.Equal("Owner", jwt.Payload["role"]);
         Assert.Equal(user.CompanyId.ToString(), jwt.Payload["company_id"]);
-        // Срок — 15 минут от момента входа (секунды в JWT округляются вниз)
         Assert.InRange(jwt.ValidTo, before.AddMinutes(15).AddSeconds(-1), DateTime.UtcNow.AddMinutes(15).AddSeconds(1));
     }
 
-    // expiresIn — относительный срок access token в секундах: клиенту не нужно сверять часы
     [Fact]
     public async Task Response_HasExpiresIn900()
     {
@@ -54,8 +49,6 @@ public class LoginTests(ApiFactory factory)
         Assert.Equal(900, body.RootElement.GetProperty("expiresIn").GetInt32());
     }
 
-    // Refresh token — только в cookie, с атрибутами из api.yaml (SetRefreshCookie): JS его не видит,
-    // браузер шлёт его только на /api/auth/* и только с того же сайта
     [Fact]
     public async Task SetsRefreshCookieWithSecureAttributes()
     {
@@ -73,13 +66,11 @@ public class LoginTests(ApiFactory factory)
         Assert.Equal("/api/auth", cookie.Path.Value);
         Assert.Equal(TimeSpan.FromDays(30), cookie.MaxAge);
 
-        // 32 случайных байта в base64url без паддинга
         var token = response.RefreshToken();
         Assert.Matches("^[A-Za-z0-9_-]{43}$", token);
         Assert.Equal(32, Base64UrlEncoder.DecodeBytes(token).Length);
     }
 
-    // В теле refresh token нет: XSS не должен до него дотянуться
     [Fact]
     public async Task Body_DoesNotContainRefreshToken()
     {
@@ -92,7 +83,6 @@ public class LoginTests(ApiFactory factory)
         Assert.DoesNotContain(refreshToken, await response.Content.ReadAsStringAsync());
     }
 
-    // Сервер хранит SHA-256 токена, а не сам токен: утечка таблицы не даёт войти
     [Fact]
     public async Task StoresOnlySha256OfRefreshToken()
     {
@@ -104,7 +94,6 @@ public class LoginTests(ApiFactory factory)
         Assert.True(await _db.RefreshTokenExistsAsync(TestDb.RefreshTokenHash(refreshToken)));
     }
 
-    // Каждый вход — своя сессия со своим токеном
     [Fact]
     public async Task EachLogin_GetsDifferentRefreshToken()
     {
@@ -117,7 +106,6 @@ public class LoginTests(ApiFactory factory)
         Assert.NotEqual(first, second);
     }
 
-    // Неудачный вход сессию не начинает
     [Theory]
     [InlineData(true, true, "wrong-password")]
     [InlineData(false, true, AuthRequests.Password)]
@@ -132,7 +120,6 @@ public class LoginTests(ApiFactory factory)
         Assert.Null(response.RefreshSetCookie());
     }
 
-    // Телефон нормализуется перед поиском: вход в любом допустимом формате
     [Fact]
     public async Task PhoneInAnotherFormat_LogsIn()
     {
@@ -181,7 +168,6 @@ public class LoginTests(ApiFactory factory)
         await AssertProblem(response, HttpStatusCode.Unauthorized);
     }
 
-    // Неизвестный телефон и неверный пароль неразличимы: иначе по ответу можно узнать, зарегистрирован ли номер
     [Fact]
     public async Task UnknownPhoneAndWrongPassword_LookTheSame()
     {
@@ -216,7 +202,6 @@ public class LoginTests(ApiFactory factory)
         await AssertProblem(response, HttpStatusCode.Forbidden);
     }
 
-    // Неподтверждённый и уволенный — разные причины, и у них разные пояснения
     [Fact]
     public async Task NotApprovedAndDeactivated_HaveDifferentDetails()
     {
@@ -229,7 +214,6 @@ public class LoginTests(ApiFactory factory)
         Assert.NotEqual(await Detail(first), await Detail(second));
     }
 
-    // Статус аккаунта проверяется только после верного пароля
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, false)]
@@ -243,7 +227,6 @@ public class LoginTests(ApiFactory factory)
         await AssertProblem(response, HttpStatusCode.Unauthorized);
     }
 
-    // Регистрация через API, статус — напрямую в БД (подтверждение и увольнение через API — блок 4)
     private async Task<(UserRow User, Guid CompanyId)> CreateEmployee(UserRole role, bool isApproved, bool isActive)
     {
         var companyId = await _db.CreateCompanyAsync();

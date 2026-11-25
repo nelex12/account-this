@@ -5,9 +5,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// DELETE /api/users/{id} (роль Owner, блок 4) — часть про сессии: увольнение запоминает момент увольнения
-// и в той же транзакции гасит все refresh token пользователя. Остальное поведение увольнения — в тестах блока 4.
-// Owner вызывает API с JWT из TestTokens, чтобы тесты не зависели от входа Owner.
 [Collection("Api")]
 public class DeactivationRevokesSessionsTests(ApiFactory factory)
 {
@@ -32,7 +29,6 @@ public class DeactivationRevokesSessionsTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.Unauthorized, (await _client.RefreshAsync(laptopSession)).StatusCode);
     }
 
-    // Гасятся только сессии уволенного
     [Fact]
     public async Task Deactivation_DoesNotEndOtherUsersSessions()
     {
@@ -49,7 +45,6 @@ public class DeactivationRevokesSessionsTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, (await _client.RefreshAsync(ownerSession)).StatusCode);
     }
 
-    // Момент увольнения — время сервера; по нему /api/sync выставляет WORKER_DEACTIVATED
     [Fact]
     public async Task Deactivation_RecordsDeactivatedAt()
     {
@@ -65,8 +60,6 @@ public class DeactivationRevokesSessionsTests(ApiFactory factory)
         Assert.InRange(deactivatedAt.Value, before, after);
     }
 
-    // Повторный вызов — 200, но момент увольнения не переписывается: иначе операции между первым
-    // и вторым вызовом перестали бы считаться совершёнными после увольнения
     [Fact]
     public async Task RepeatedDeactivation_KeepsOriginalDeactivatedAt()
     {
@@ -82,7 +75,6 @@ public class DeactivationRevokesSessionsTests(ApiFactory factory)
         Assert.Equal(original, await _db.FindDeactivatedAtAsync(employee.Id));
     }
 
-    // Пользователь другой компании — 404, и его сессии не трогаются
     [Fact]
     public async Task UserOfAnotherCompany_SessionsUntouched()
     {
@@ -111,7 +103,6 @@ public class DeactivationRevokesSessionsTests(ApiFactory factory)
         return (await _db.FindUserAsync(phone))!;
     }
 
-    // Регистрация через API, подтверждение — напрямую в БД (не зависит от approve)
     private async Task<UserRow> CreateApprovedEmployee(UserRow owner, UserRole role)
     {
         var phone = TestDb.UniquePhone();

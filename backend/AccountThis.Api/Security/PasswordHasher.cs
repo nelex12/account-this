@@ -4,9 +4,6 @@ using Konscious.Security.Cryptography;
 
 namespace AccountThis.Api.Security;
 
-
-
-// Хеш хранится в users.password_hash вместе с солью и параметрами алгоритма
 public interface IPasswordHasher
 {
     string Hash(string password);
@@ -22,11 +19,7 @@ public class PasswordHasher : IPasswordHasher
     private const int MemorySize = 19456; // в КиБ, а не в байтах: 19456 КиБ = 19 МБ
     private const int Iterations = 3;
 
-    /// <summary>
-    /// Генерирует хэш Argon2 для пароля и возвращает строку с хэшем, солью и параметрами алгоритма в формате PHC (Password Hashing Competition).
-    /// </summary>
-    /// <param name="password"></param>
-    /// <returns></returns>
+    /// <summary>Хеш пароля в формате PHC.</summary>
     public string Hash(string password)
     {
         if (password.Length == 0)
@@ -52,12 +45,7 @@ public class PasswordHasher : IPasswordHasher
         return $"$argon2id$v={Version}$m={MemorySize},t={Iterations},p={DegreeOfParallelism}${stringSalt}${stringHash}";
     }
 
-    /// <summary>
-    /// Сверяет пароль с хэшем, возвращает true, если совпадает, иначе false. Использует фиксированное время сравнения для защиты от атак по времени.
-    /// </summary>
-    /// <param name="password"></param>
-    /// <param name="passwordHash"></param>
-    /// <returns></returns>
+    /// <summary>Проверка пароля.</summary>
     public bool Verify(string password, string passwordHash)
     {
         if (password.Length == 0)

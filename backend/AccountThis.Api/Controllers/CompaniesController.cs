@@ -10,10 +10,7 @@ namespace AccountThis.Api.Controllers;
 [Route("api/companies")]
 public class CompaniesController(ICompaniesService companiesService) : ControllerBase
 {
-    /// <summary>
-    /// Своя компания (id и название). Owner сообщает этот id сотрудникам и завхозам, они указывают его при
-    /// регистрации (companyId). Требуется авторизация, любая роль. Чужую компанию получить нельзя.
-    /// </summary>
+    /// <summary>Компания пользователя.</summary>
     [HttpGet("my")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]

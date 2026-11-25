@@ -11,8 +11,6 @@ using NSec.Cryptography;
 
 namespace AccountThis.Api.Tests.Api;
 
-// GET /api/auth/worker-cert — роль Worker. Статус аккаунта проверяется по БД в момент запроса, а не по JWT:
-// 403 с ProblemDetails, если не подтверждён или уволен. 401/403 по самому JWT — в AuthenticationPipelineTests.
 [Collection("Api")]
 public class WorkerCertTests(ApiFactory factory)
 {
@@ -21,7 +19,6 @@ public class WorkerCertTests(ApiFactory factory)
     private readonly HttpClient _client = factory.CreateClient();
     private readonly TestDb _db = factory.Db;
 
-    // Подпись проверяется независимо от сервера: по известному публичному ключу из TestKeys
     private readonly SignatureService _signatures = new(TestKeys.Configuration());
 
     [Fact]
@@ -39,7 +36,6 @@ public class WorkerCertTests(ApiFactory factory)
 
         using var token = DecodeToken(cert.Token);
         var root = token.RootElement;
-        // Канонический вид UUID: строчные hex, 8-4-4-4-12
         Assert.Equal(worker.Id.ToString("D"), root.GetProperty("workerId").GetString());
         Assert.Equal("Кузнецов Кузьма Кузьмич", root.GetProperty("fio").GetString());
 
@@ -49,7 +45,6 @@ public class WorkerCertTests(ApiFactory factory)
         Assert.InRange(cert.ServerTime, before, after);
     }
 
-    // Клиент завхоза читает поля по именам из api.yaml — регистр важен
     [Fact]
     public async Task Token_IsJsonWithExactlyContractFieldNames()
     {
@@ -62,7 +57,6 @@ public class WorkerCertTests(ApiFactory factory)
         Assert.Equal(["expiresAt", "fio", "issuedAt", "workerId", "workerPublicKey"], names);
     }
 
-    // serverSignature = Ed25519(ключ сервера, "AT1-TOKEN." + token)
     [Fact]
     public async Task ServerSignature_IsValidOverPrefixedToken()
     {
@@ -71,11 +65,9 @@ public class WorkerCertTests(ApiFactory factory)
         var cert = await ReadCert(await GetCert(worker));
 
         Assert.True(_signatures.Verify(TestKeys.ServerPublicKey, "AT1-TOKEN." + cert.Token, cert.ServerSignature));
-        // Без префикса подпись не сходится: префикс отделяет подписи токенов от других подписей сервера
         Assert.False(_signatures.Verify(TestKeys.ServerPublicKey, cert.Token, cert.ServerSignature));
     }
 
-    // Временный приватный ключ — пара к workerPublicKey из токена: им сотрудник подписывает операции
     [Fact]
     public async Task TemporaryPrivateKey_MatchesWorkerPublicKey()
     {
@@ -91,7 +83,6 @@ public class WorkerCertTests(ApiFactory factory)
         Assert.Equal(derivedPublicKey, token.RootElement.GetProperty("workerPublicKey").GetString());
     }
 
-    // Пара ключей временная: на каждый запрос новая
     [Fact]
     public async Task EachRequest_IssuesNewKeyPair()
     {
@@ -118,7 +109,6 @@ public class WorkerCertTests(ApiFactory factory)
         Assert.False(string.IsNullOrWhiteSpace(body.RootElement.GetProperty("detail").GetString()));
     }
 
-    // JWT выдан до увольнения и ещё действует, но сертификат уже не выдаётся: проверка по БД, а не по токену
     [Fact]
     public async Task FiredAfterTokenWasIssued_Returns403()
     {
@@ -141,7 +131,6 @@ public class WorkerCertTests(ApiFactory factory)
         return user;
     }
 
-    // JWT собирается в тестах (TestTokens), чтобы эти тесты не зависели от реализации входа
     private static string Jwt(UserRow worker) => TestTokens.Create(UserRole.Worker, worker.Id, worker.CompanyId);
 
     private Task<HttpResponseMessage> GetCert(UserRow worker) => GetCert(Jwt(worker));
@@ -161,7 +150,6 @@ public class WorkerCertTests(ApiFactory factory)
         return cert;
     }
 
-    // token = base64url(UTF-8 JSON)
     private static JsonDocument DecodeToken(string token) =>
         JsonDocument.Parse(Encoding.UTF8.GetString(Base64UrlEncoder.DecodeBytes(token)));
 }

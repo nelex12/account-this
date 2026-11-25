@@ -33,14 +33,12 @@ public class PasswordHasherTests
         Assert.False(_hasher.Verify(wrongPassword, hash));
     }
 
-    // Соль: одинаковые пароли разных пользователей не должны давать одинаковый хеш в БД
     [Fact]
     public void Hash_SamePasswordTwice_GivesDifferentHashes()
     {
         Assert.NotEqual(_hasher.Hash("Secret123!"), _hasher.Hash("Secret123!"));
     }
 
-    // Хеш хранится в users.password_hash (VARCHAR): только текст, без управляющих символов
     [Fact]
     public void Hash_IsPrintableText()
     {

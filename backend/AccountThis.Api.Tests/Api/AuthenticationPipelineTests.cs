@@ -7,8 +7,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// Проверка JWT и ролей — до контроллера (api.yaml, «Ошибки»): 401/403 без тела, у 401 заголовок WWW-Authenticate: Bearer.
-// Берётся /api/auth/worker-cert (роль Worker): до сервиса эти запросы дойти не должны, поэтому БД не нужна.
 [Collection("Api")]
 public class AuthenticationPipelineTests(ApiFactory factory)
 {
@@ -52,7 +50,6 @@ public class AuthenticationPipelineTests(ApiFactory factory)
         await AssertUnauthorized(response);
     }
 
-    // Срок действия — ровно 15 минут, без запаса: токен, истёкший минуту назад, уже не принимается
     [Fact]
     public async Task JustExpiredToken_Returns401()
     {
@@ -74,7 +71,6 @@ public class AuthenticationPipelineTests(ApiFactory factory)
         Assert.Empty(await response.Content.ReadAsByteArrayAsync());
     }
 
-    // Защищён весь контроллер (атрибут на классе), а не только отдельные методы
     [Theory]
     [InlineData("/api/tools")]
     [InlineData("/api/users")]
@@ -87,7 +83,6 @@ public class AuthenticationPipelineTests(ApiFactory factory)
         await AssertUnauthorized(response);
     }
 
-    // Во всех ProblemDetails есть traceId (api.yaml, «Ошибки»)
     [Fact]
     public async Task ValidationError_IsProblemDetailsWithTraceId()
     {

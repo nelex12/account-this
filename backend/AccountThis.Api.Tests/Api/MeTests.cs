@@ -6,8 +6,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// GET /api/users/me — любая роль. Пользователь берётся только из JWT (sub + company_id), параметров нет:
-// чужой профиль запросить нечем, а sub из чужой компании неотличим от несуществующего (404).
 [Collection("Api")]
 public class MeTests(ApiFactory factory)
 {
@@ -31,12 +29,10 @@ public class MeTests(ApiFactory factory)
         Assert.Equal("Петров Пётр Петрович", me.GetProperty("fullName").GetString());
         Assert.Equal(user.Phone, me.GetProperty("phone").GetString());
         Assert.Equal(role.ToString(), me.GetProperty("role").GetString());
-        // Owner подтверждён сразу, Worker и Issuer — после approve
         Assert.Equal(role == UserRole.Owner, me.GetProperty("isApproved").GetBoolean());
         Assert.True(me.GetProperty("isActive").GetBoolean());
     }
 
-    // В ответе нет хеша пароля и других внутренних полей
     [Fact]
     public async Task Me_ReturnsOnlyContractFields()
     {
@@ -49,7 +45,6 @@ public class MeTests(ApiFactory factory)
         Assert.Equal(new[] { "fullName", "id", "isActive", "isApproved", "phone", "role" }, fields);
     }
 
-    // Пока access token не истёк, уволенный видит свой профиль с isActive = false
     [Fact]
     public async Task Me_FiredUser_ReturnsIsActiveFalse()
     {
@@ -73,7 +68,6 @@ public class MeTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
-    // sub существующего пользователя, но company_id другой компании — 404, а не его профиль
     [Fact]
     public async Task Me_UserOfOtherCompany_Returns404()
     {
@@ -93,7 +87,6 @@ public class MeTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    // Остальные /api/users по-прежнему только для Owner
     [Theory]
     [InlineData(UserRole.Issuer)]
     [InlineData(UserRole.Worker)]

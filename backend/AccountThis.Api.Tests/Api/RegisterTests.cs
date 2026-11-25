@@ -6,7 +6,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// POST /api/auth/register — без авторизации. 201 без тела; 400 — компании с таким companyId нет; 409 — телефон занят.
 [Collection("Api")]
 public class RegisterTests(ApiFactory factory)
 {
@@ -54,7 +53,6 @@ public class RegisterTests(ApiFactory factory)
         Assert.True(user.IsActive);
     }
 
-    // Телефон хранится в виде +7XXXXXXXXXX, как бы его ни ввели
     [Theory]
     [InlineData("8{0}")]
     [InlineData("7{0}")]
@@ -93,7 +91,6 @@ public class RegisterTests(ApiFactory factory)
         await AssertProblem(response, HttpStatusCode.Conflict);
     }
 
-    // Уникальность телефона не зависит от роли и компании
     [Fact]
     public async Task EmployeeWithTakenPhone_Returns409()
     {
@@ -106,7 +103,6 @@ public class RegisterTests(ApiFactory factory)
         await AssertProblem(response, HttpStatusCode.Conflict);
     }
 
-    // «Если регистрация не удалась (409), компания не создаётся»
     [Fact]
     public async Task OwnerWithTakenPhone_DoesNotCreateCompany()
     {
@@ -120,7 +116,6 @@ public class RegisterTests(ApiFactory factory)
         Assert.Equal(0, await _db.CountCompaniesAsync(secondCompanyName));
     }
 
-    // Пользователь уволен, но телефон всё равно занят
     [Fact]
     public async Task PhoneOfDeactivatedUser_IsStillTaken()
     {
@@ -150,8 +145,6 @@ public class RegisterTests(ApiFactory factory)
         Assert.Null(await _db.FindUserAsync(phone));
     }
 
-    // Ключи errors — имена полей JSON (как в запросе), чтобы клиент сопоставлял ошибки с полями формы.
-    // Ошибки связки роль/компания (IValidatableObject) проверяются только после ошибок атрибутов, поэтому отдельно
     [Fact]
     public async Task InvalidFields_ErrorKeysAreJsonFieldNames()
     {
@@ -184,8 +177,6 @@ public class RegisterTests(ApiFactory factory)
         Assert.True(errors.TryGetProperty("companyName", out _), errors.ToString());
     }
 
-    // Роль — строго имя значения (api.yaml, «Значения в запросах»): число и другой регистр — 400.
-    // Несуществующая роль "5" раньше доходила до сервиса и давала 500, а 2 молча становилась Owner
     [Theory]
     [InlineData("5")]
     [InlineData("2")]
@@ -209,7 +200,6 @@ public class RegisterTests(ApiFactory factory)
         Assert.Null(await _db.FindUserAsync(phone));
     }
 
-    // PostgreSQL не хранит символ U+0000: такая строка — 400 на валидации, а не 500 на INSERT
     [Fact]
     public async Task NullCharacterInFullNameAndCompanyName_Returns400AndDoesNotRegister()
     {
@@ -238,7 +228,6 @@ public class RegisterTests(ApiFactory factory)
         return body.RootElement.GetProperty("errors").Clone();
     }
 
-    // {0} — 10 цифр после +7, {1}..{4} — группы 3-3-2-2
     private static string FormatPhone(string format, string normalizedPhone)
     {
         var d = normalizedPhone[2..];

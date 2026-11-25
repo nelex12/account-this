@@ -7,10 +7,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// POST /api/auth/refresh — без JWT, refresh token в cookie. 200: новый access token в теле и новый refresh token
-// в cookie (ротация: предъявленный гасится). 401 с ProblemDetails и удалением cookie — во всех остальных случаях.
-// Повторное предъявление погашенного ротацией токена гасит всю сессию, кроме потерянного ответа
-// (выданный взамен токен не использован, прошло не больше AuthService.RefreshReuseGrace).
 [Collection("Api")]
 public class RefreshTests(ApiFactory factory)
 {
@@ -53,7 +49,6 @@ public class RefreshTests(ApiFactory factory)
         Assert.NotEqual(refreshToken, response.RefreshToken());
     }
 
-    // Сессия продолжается по цепочке: каждый новый токен снова обменивается
     [Fact]
     public async Task NewToken_CanBeRefreshedAgain()
     {
@@ -97,9 +92,6 @@ public class RefreshTests(ApiFactory factory)
         await AssertSessionGone(response);
     }
 
-    // Старый токен предъявлен, когда выданный взамен уже использован: токеном сессии пользуются двое —
-    // признак кражи, гасится вся сессия, включая последний токен (иначе вор, успевший обменять токен первым,
-    // сохранил бы доступ)
     [Fact]
     public async Task RotatedTokenReused_AfterSuccessorUsed_Returns401AndEndsWholeSession()
     {
@@ -114,7 +106,6 @@ public class RefreshTests(ApiFactory factory)
         await AssertSessionGone(afterReuse);
     }
 
-    // Старый токен предъявлен позже окна повторного предъявления — тоже кража, даже если новый не использован
     [Fact]
     public async Task RotatedTokenReused_AfterGraceWindow_Returns401AndEndsWholeSession()
     {
@@ -129,9 +120,6 @@ public class RefreshTests(ApiFactory factory)
         await AssertSessionGone(afterReuse);
     }
 
-    // Потерянный ответ: сервер выдал новый токен, а браузер его не получил (F5 сразу после открытия страницы,
-    // обрыв сети) и снова предъявляет старый. Новый токен не использован, окно не прошло — сессия продолжается:
-    // выдаётся ещё один токен, а неполученный гасится
     [Fact]
     public async Task RotatedTokenReused_WithinGraceAndSuccessorUnused_ContinuesSession()
     {
@@ -147,7 +135,6 @@ public class RefreshTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, (await _client.RefreshAsync(next)).StatusCode);
     }
 
-    // Ответ теряется несколько раз подряд (F5, F5): каждый повтор старого токена в окне продолжает сессию
     [Fact]
     public async Task RotatedTokenReused_RepeatedlyWithinGrace_ContinuesSession()
     {
@@ -161,7 +148,6 @@ public class RefreshTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, (await _client.RefreshAsync(retry.RefreshToken())).StatusCode);
     }
 
-    // Неполученный токен, замененный повтором, больше не действует: его предъявление — признак кражи
     [Fact]
     public async Task LostTokenUsedAfterRetry_Returns401AndEndsWholeSession()
     {
@@ -176,7 +162,6 @@ public class RefreshTests(ApiFactory factory)
         await AssertSessionGone(afterStale);
     }
 
-    // Окно не продлевает сессию после выхода: погашенный выходом токен не обменивается
     [Fact]
     public async Task RotatedTokenReused_AfterLogout_Returns401()
     {
@@ -189,7 +174,6 @@ public class RefreshTests(ApiFactory factory)
         await AssertSessionGone(reuse);
     }
 
-    // Повтор в одной сессии не трогает другие сессии того же пользователя (другие устройства)
     [Fact]
     public async Task RotatedTokenReused_DoesNotEndOtherSessions()
     {
@@ -204,8 +188,6 @@ public class RefreshTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    // Защита на случай, если токен не погасили: статус аккаунта проверяется по БД при каждом обновлении.
-    // Флаг меняется в обход API, поэтому refresh token остаётся непогашенным
     [Theory]
     [InlineData(UserRole.Worker)]
     [InlineData(UserRole.Issuer)]
@@ -224,7 +206,6 @@ public class RefreshTests(ApiFactory factory)
         await AssertSessionGone(response);
     }
 
-    // Обмен не требует JWT: access token к этому моменту обычно уже истёк
     [Fact]
     public async Task ExpiredAccessTokenInHeader_DoesNotMatter()
     {
@@ -247,7 +228,6 @@ public class RefreshTests(ApiFactory factory)
         return (user, await _client.LoginForRefreshTokenAsync(phone));
     }
 
-    // Причины не различаются: клиенту в любом случае нужно войти заново
     private static async Task AssertSessionGone(HttpResponseMessage response)
     {
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);

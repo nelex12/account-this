@@ -7,10 +7,6 @@ using RabbitMQ.Client;
 
 namespace AccountThis.Api.Tests.Api;
 
-// Журнал аудита (docs/events.md): действие через API → outbox_events в той же транзакции → OutboxDispatcher → RabbitMQ →
-// потребитель audit (Worker) → строка audit_events. Запись асинхронная, поэтому тесты ждут строку с таймаутом. Событие только при реальном изменении состояния.
-// Отсутствие события проверяется «барьером»: после действия без события выполняется действие с событием;
-// очередь одна и обрабатывается по порядку, поэтому к появлению второго события первое тоже было бы записано.
 [Collection("Api")]
 public class AuditEventsTests(ApiFactory factory)
 {
@@ -34,7 +30,6 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Equal(role.ToString(), employeeEvent.Data.GetProperty("role").GetString());
     }
 
-    // Общие поля сообщения; телефоны, пароли и токены в события не попадают
     [Fact]
     public async Task Event_HasEnvelopeFieldsAndNoSecrets()
     {
@@ -66,7 +61,6 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Empty(await _db.FindAuditEventsAsync(owner.CompanyId, "auth.logged_in"));
     }
 
-    // Подтверждение — событие только при первом вызове
     [Fact]
     public async Task Approve_PublishesOnlyOnFirstCall()
     {
@@ -100,14 +94,12 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Equal(2, row.Data.GetProperty("revokedSessions").GetInt32());
     }
 
-    // Погашенный ротацией токен живой сессии предъявлен снова — признак кражи
     [Fact]
     public async Task RefreshTokenReuse_PublishesSessionReuseDetected()
     {
         var owner = await factory.CreateOwnerAsync(_client);
         var first = await _client.LoginForRefreshTokenAsync(owner.Phone);
         var second = (await _client.RefreshAsync(first)).RefreshToken();
-        // выданный взамен токен уже использован: старым пользуется кто-то второй
         Assert.Equal(HttpStatusCode.OK, (await _client.RefreshAsync(second)).StatusCode);
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await _client.RefreshAsync(first)).StatusCode);
@@ -116,8 +108,6 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Equal(owner.Id, row.ActorId);
     }
 
-    // Новая сессия, выданная в ответе, в revokedSessions не входит; пароли в событие не попадают.
-    // Неудачная попытка (неверный текущий пароль) события не создаёт
     [Fact]
     public async Task ChangePassword_PublishesOnceWithRevokedSessions()
     {
@@ -140,7 +130,6 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.DoesNotContain(newPassword, raw);
     }
 
-    // Повтор после выхода — сессия уже завершена, это не кража
     [Fact]
     public async Task RefreshAfterLogout_IsNotReuse()
     {
@@ -181,7 +170,6 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Equal(toolId, writtenOff.Data.GetProperty("toolId").GetGuid());
     }
 
-    // Одно событие на запрос: всего записей, новых (без повторной отправки) и новых по флагам
     [Fact]
     public async Task Sync_PublishesOneEventWithCounts()
     {
@@ -214,7 +202,6 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Equal(1, flags.GetProperty("TIME_DRIFT").GetInt32());
     }
 
-    // Пустой массив и отклонённый (400) запрос событий не создают
     [Fact]
     public async Task EmptyOrRejectedSync_PublishesNothing()
     {
@@ -227,7 +214,6 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Empty(await _db.FindAuditEventsAsync(owner.CompanyId, "rental.synced"));
     }
 
-    // Повторная отправка уже сохранённых записей (обрыв связи) ничего не меняет — второго события нет
     [Fact]
     public async Task ResendOnlySync_PublishesNothing()
     {
@@ -247,9 +233,6 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Single(await _db.FindAuditEventsAsync(owner.CompanyId, "rental.synced"));
     }
 
-    // ---------- Outbox ----------
-
-    // Отправленное событие удаляется из outbox
     [Fact]
     public async Task Outbox_IsEmptiedAfterPublish()
     {
@@ -260,8 +243,6 @@ public class AuditEventsTests(ApiFactory factory)
         await WaitUntil(async () => await _db.CountOutboxEventsAsync(row.EventId) == 0, "Событие осталось в outbox_events");
     }
 
-    // Событие, зафиксированное, но не отправленное (приложение упало, брокер был недоступен), отправляется позже:
-    // строка в outbox без сигнала NOTIFY — диспетчер находит её при периодической проверке
     [Fact]
     public async Task Outbox_PendingEventWithoutSignal_IsDeliveredLater()
     {
@@ -276,9 +257,6 @@ public class AuditEventsTests(ApiFactory factory)
         await WaitUntil(async () => await _db.CountOutboxEventsAsync(eventId) == 0, "Событие осталось в outbox_events");
     }
 
-    // ---------- Потребитель ----------
-
-    // Повторная доставка того же события (тот же eventId) — одна строка
     [Fact]
     public async Task Consumer_RedeliveredEvent_IsStoredOnce()
     {
@@ -306,7 +284,6 @@ public class AuditEventsTests(ApiFactory factory)
         Assert.Equal(1, await _db.CountAuditEventsAsync(eventId));
     }
 
-    // Неразбираемое сообщение уходит в очередь отказов events.dead, а не крутится в audit
     [Fact]
     public async Task Consumer_MalformedMessage_GoesToDeadLetterQueue()
     {
@@ -317,8 +294,6 @@ public class AuditEventsTests(ApiFactory factory)
         await WaitForDeadLetterAsync(marker);
     }
 
-    // Контракт типа проверяет каждый потребитель сам: конверт верный — audit записывает событие,
-    // а notifications без data.userId обработать его не может и отправляет в events.dead
     [Fact]
     public async Task NotificationsConsumer_EventWithoutRequiredData_GoesToDeadLetterQueue()
     {
@@ -366,7 +341,7 @@ public class AuditEventsTests(ApiFactory factory)
         }
     }
 
-    // Действие, которое точно создаёт событие, — после него все ранее опубликованные события уже записаны
+    // Контрольное событие отмечает конец очереди.
     private async Task Barrier(TestUser owner)
     {
         var barrierTool = await _client.CreateToolAsync(owner, "Барьер");

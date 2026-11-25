@@ -3,7 +3,6 @@ using RabbitMQ.Client;
 
 namespace AccountThis.Shared.Events;
 
-// Топология и подключение к брокеру (docs/events.md, «Топология», «Настройки»)
 public static class RabbitMqTopology
 {
     public const string Exchange = "accountthis.events";
@@ -13,13 +12,11 @@ public static class RabbitMqTopology
     public const string AuditQueue = "audit";
     public const string NotificationsQueue = "notifications";
 
-    // Очередь потребителя и routing key, на которые она подписана. Новый потребитель — новая строка здесь
     public static readonly IReadOnlyDictionary<string, string[]> Queues = new Dictionary<string, string[]>
     {
         // Журнал аудита хранит всё
         [AuditQueue] = ["#"],
 
-        // Уведомления Owner — только о том, что требует его внимания (и о том, что снимает уведомление)
         [NotificationsQueue] =
         [
             EventTypes.UserRegistered,
@@ -30,8 +27,6 @@ public static class RabbitMqTopology
         ],
     };
 
-    // Объявление идемпотентно: API (отправитель) и Worker (потребители) вызывают его при каждом подключении.
-    // Отправитель объявляет и очереди: иначе события, отправленные, пока Worker не запущен, некуда было бы положить
     public static async Task DeclareAsync(IChannel channel, CancellationToken cancellationToken)
     {
         await channel.ExchangeDeclareAsync(Exchange, ExchangeType.Topic, durable: true, autoDelete: false,
@@ -63,7 +58,6 @@ public static class RabbitMqTopology
         UserName = configuration["RABBITMQ_USER"] ?? "guest",
         Password = configuration["RABBITMQ_PASSWORD"] ?? "guest",
         ClientProvidedName = clientName,
-        // Обрыв связи после подключения клиент восстанавливает сам, вместе с очередями и подписками
         AutomaticRecoveryEnabled = true,
         TopologyRecoveryEnabled = true,
         RequestedConnectionTimeout = TimeSpan.FromSeconds(5),

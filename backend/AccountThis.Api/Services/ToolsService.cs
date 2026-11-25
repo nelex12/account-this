@@ -5,15 +5,11 @@ using Npgsql;
 
 namespace AccountThis.Api.Services;
 
-// Чтение инструментов — из view tools_with_holders (Tool вместе с текущим держателем).
-// Все методы ограничены компанией вызывающего (companyId из JWT): инструмент другой компании
-// неотличим от несуществующего (null / false). actorId — id вызывающего (из JWT), автор события аудита.
 public interface IToolsService
 {
     // Только активные (не списанные)
     Task<List<Tool>> GetActiveToolsAsync(Guid companyId, CancellationToken cancellationToken);
 
-    // Инструмент создаётся в компании companyId; состояние Good, без комментария и держателя
     Task<Tool> CreateAsync(Guid companyId, Guid actorId, CreateToolRequest request, CancellationToken cancellationToken);
 
     // В том числе списанный; null — не найден
@@ -22,7 +18,6 @@ public interface IToolsService
     // false — не найден
     Task<bool> UpdateConditionAsync(Guid companyId, Guid actorId, Guid id, UpdateToolConditionRequest request, CancellationToken cancellationToken);
 
-    // Списание (is_active = false); false — не найден, повторное списание — true
     Task<bool> DeactivateAsync(Guid companyId, Guid actorId, Guid id, CancellationToken cancellationToken);
 }
 
@@ -50,7 +45,6 @@ public class ToolsService(NpgsqlDataSource dataSource, IEventOutbox eventOutbox,
 
     public async Task<Tool> CreateAsync(Guid companyId, Guid actorId, CreateToolRequest request, CancellationToken cancellationToken)
     {
-        // Состояние, время изменения состояния и is_active — значения по умолчанию из схемы; держателя у нового нет
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand(
@@ -96,9 +90,6 @@ public class ToolsService(NpgsqlDataSource dataSource, IEventOutbox eventOutbox,
 
     public async Task<bool> UpdateConditionAsync(Guid companyId, Guid actorId, Guid id, UpdateToolConditionRequest request, CancellationToken cancellationToken)
     {
-        // Condition != null — меняет condition и condition_updated_at = время сервера.
-        // Comment != null — меняет comment ("" — очистить, записывается NULL).
-        // Не передано ничего — только проверка, что инструмент есть (200 / 404)
         var assignments = new List<string>();
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
@@ -117,7 +108,6 @@ public class ToolsService(NpgsqlDataSource dataSource, IEventOutbox eventOutbox,
             cmd.Parameters.AddWithValue("comment", request.Comment.Length == 0 ? DBNull.Value : (object)request.Comment);
         }
 
-        // Имена столбцов — константы выше, значения — только через параметры
         cmd.CommandText = assignments.Count == 0
             ? "SELECT 1 FROM tools WHERE id = @id AND company_id = @companyId"
             : $"UPDATE tools SET {string.Join(", ", assignments)} WHERE id = @id AND company_id = @companyId RETURNING 1";
@@ -147,7 +137,6 @@ public class ToolsService(NpgsqlDataSource dataSource, IEventOutbox eventOutbox,
 
     public async Task<bool> DeactivateAsync(Guid companyId, Guid actorId, Guid id, CancellationToken cancellationToken)
     {
-        // prev — значение до изменения (строка заблокирована): событие только при первом списании
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
         await using var cmd = new NpgsqlCommand(

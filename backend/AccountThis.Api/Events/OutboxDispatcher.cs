@@ -5,11 +5,6 @@ using RabbitMQ.Client;
 
 namespace AccountThis.Api.Events;
 
-// Отправка событий из outbox_events в RabbitMQ (docs/events.md, «Издатель»). Фоновая служба API.
-// Будит её NOTIFY после COMMIT транзакции с событием; раз в PollInterval она проверяет outbox и без сигнала —
-// так отправляются события, оставшиеся после остановки приложения или недоступности брокера.
-// Запись удаляется только после подтверждения брокера (publisher confirms): доставка «хотя бы один раз».
-// HTTP-запросы от брокера не зависят: брокер недоступен — события копятся в outbox и уходят, когда он вернётся.
 public sealed class OutboxDispatcher(
     NpgsqlDataSource dataSource,
     IConfiguration configuration,
@@ -39,8 +34,7 @@ public sealed class OutboxDispatcher(
 
                 while (!stoppingToken.IsCancellationRequested)
                 {
-                    // Сначала всё накопленное, потом ждать сигнала. NOTIFY, пришедший во время отправки,
-                    // не теряется: он ждёт в соединении, и WaitAsync сразу вернётся
+                    // Перед ожиданием обработать накопленные события.
                     await DispatchPendingAsync(stoppingToken);
                     await listener.WaitAsync(PollInterval, stoppingToken);
                 }
@@ -74,9 +68,7 @@ public sealed class OutboxDispatcher(
         }
     }
 
-    // Пачка в одной транзакции: прочитать, отправить, удалить отправленное. Сбой в середине — откат,
-    // пачка будет отправлена снова целиком (потребители отсекают повтор по eventId).
-    // FOR UPDATE SKIP LOCKED: несколько экземпляров API не отправляют одну запись одновременно
+    // SKIP LOCKED разделяет пачки между экземплярами API.
     private async Task<int> DispatchBatchAsync(CancellationToken cancellationToken)
     {
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -124,7 +116,6 @@ public sealed class OutboxDispatcher(
                 Type = message.Type,
             };
 
-            // С отслеживанием подтверждений вызов завершается, когда брокер принял сообщение (или бросает при отказе)
             await channel.BasicPublishAsync(RabbitMqTopology.Exchange, message.Type, mandatory: false, properties,
                 message.ToUtf8Bytes(), cancellationToken);
         }

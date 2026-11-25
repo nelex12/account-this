@@ -5,8 +5,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// /api/tools (роли Issuer, Owner; списание — только Owner). У каждой компании свой реестр:
-// инструмент другой компании неотличим от несуществующего — 404.
 [Collection("Api")]
 public class ToolsTests(ApiFactory factory)
 {
@@ -61,7 +59,6 @@ public class ToolsTests(ApiFactory factory)
         await AssertValidationError(response, "name");
     }
 
-    // Название попадает в QR сотрудника, поэтому не длиннее 100 символов
     [Fact]
     public async Task Create_NameLongerThan100_Returns400()
     {
@@ -72,7 +69,6 @@ public class ToolsTests(ApiFactory factory)
         await AssertValidationError(response, "name");
     }
 
-    // PostgreSQL не хранит символ U+0000: такая строка — 400 на валидации, а не 500 на INSERT
     [Fact]
     public async Task Create_NameWithNullCharacter_Returns400()
     {
@@ -152,7 +148,6 @@ public class ToolsTests(ApiFactory factory)
         Assert.InRange((await _db.FindToolConditionAsync(id)).ConditionUpdatedAt, before, after);
     }
 
-    // Не переданное поле не меняется; comment = "" очищает комментарий
     [Fact]
     public async Task Patch_PartialUpdates()
     {
@@ -174,7 +169,6 @@ public class ToolsTests(ApiFactory factory)
         Assert.Equal(JsonValueKind.Null, (await GetTool(issuer, id)).GetProperty("comment").ValueKind);
     }
 
-    // Комментарий без condition не сдвигает время изменения состояния
     [Fact]
     public async Task Patch_CommentOnly_KeepsConditionTime()
     {
@@ -199,8 +193,6 @@ public class ToolsTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    // condition — строго имя значения (api.yaml, «Значения в запросах»): число и другой регистр — 400.
-    // Раньше 0 молча становился Good, поэтому исходное состояние — Broken
     [Theory]
     [InlineData(0)]
     [InlineData("0")]
@@ -217,7 +209,6 @@ public class ToolsTests(ApiFactory factory)
         Assert.Equal("Broken", (await GetTool(owner, id)).GetProperty("condition").GetString());
     }
 
-    // condition: null — поле не меняется, как не переданное
     [Fact]
     public async Task Patch_NullCondition_KeepsCondition()
     {
@@ -259,7 +250,6 @@ public class ToolsTests(ApiFactory factory)
         Assert.Equal("Good", (await _db.FindToolConditionAsync(foreignTool)).Condition);
     }
 
-    // Разрешено и для списанного инструмента, is_active не меняется
     [Fact]
     public async Task Patch_WrittenOffTool_IsAllowed()
     {

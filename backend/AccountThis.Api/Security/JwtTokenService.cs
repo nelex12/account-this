@@ -4,8 +4,6 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace AccountThis.Api.Security;
 
-// JWT на 15 минут: claim sub — id пользователя, role — роль, company_id — id его компании
-// (ClaimsPrincipalExtensions.CompanyIdClaimType); HMAC-SHA256 с секретом JWT_SIGNING_KEY
 public interface IJwtTokenService
 {
     string CreateAccessToken(Guid userId, UserRole role, Guid companyId);
@@ -15,13 +13,7 @@ public class JwtTokenService(IConfiguration configuration, TimeProvider timeProv
 {
     public static readonly TimeSpan AccessTokenLifetime = TimeSpan.FromMinutes(15);
 
-    /// <summary>
-    /// Создает jwt токен на основе uuid пользователя, его роли и uuid компании. Токен подписан HMAC-SHA256 секретом из конфигурации JWT_SIGNING_KEY и действителен 15 минут (AccessTokenLifetime).
-    /// </summary>
-    /// <param name="userId"></param>
-    /// <param name="role"></param>
-    /// <param name="companyId"></param>
-    /// <returns></returns>
+    /// <summary>Выпуск токена доступа.</summary>
     public string CreateAccessToken(Guid userId, UserRole role, Guid companyId)
     {
         var secret = configuration["JWT_SIGNING_KEY"];

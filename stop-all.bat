@@ -5,8 +5,6 @@ docker compose down
 
 echo.
 echo [2/2] Остановка локальных процессов проекта...
-rem 5000 - backend из IDE / dotnet run; 5173-5175 - Vite dev-сервер (если 5173 занят, Vite берёт следующий порт).
-rem Останавливаются только node / dotnet / AccountThis.Api на этих портах - другие программы не трогаются.
 set "STOPPED="
 for %%P in (5000 5173 5174 5175) do call :stop_port %%P
 rem Worker портов не слушает - ищется по имени процесса

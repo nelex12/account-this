@@ -5,7 +5,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// GET /api/auth/server-key — без авторизации, ServerKeyResponse
 [Collection("Api")]
 public class ServerKeyTests(ApiFactory factory)
 {
@@ -24,7 +23,6 @@ public class ServerKeyTests(ApiFactory factory)
         var body = await response.Content.ReadFromJsonAsync<ServerKeyResponse>();
         Assert.NotNull(body);
         Assert.Equal(TestKeys.ServerPublicKey, body.ServerPublicKey);
-        // Unix time в секундах, не в миллисекундах
         Assert.InRange(body.ServerTime, before, after);
     }
 }

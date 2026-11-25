@@ -5,16 +5,12 @@ namespace AccountThis.Api.Models;
 // components.schemas.CreateToolRequest
 public class CreateToolRequest
 {
-    // Не длиннее 100 символов: название попадает в QR сотрудника (toolName в op)
     [Required]
     [MaxLength(100)]
     [NoNullCharacter]
     public string Name { get; set; } = string.Empty;
 }
 
-// components.schemas.UpdateToolConditionRequest
-// Не переданное (null) поле не меняется; Comment = "" очищает комментарий.
-// Разрешено и для списанного инструмента (is_active не меняется).
 public class UpdateToolConditionRequest
 {
     public ToolCondition? Condition { get; set; }
@@ -23,9 +19,6 @@ public class UpdateToolConditionRequest
     public string? Comment { get; set; }
 }
 
-// components.schemas.Tool
-// Holder* вычисляются по view tool_current_holders (последняя VALID-операция по qr_timestamp):
-// TAKE — инструмент на руках у сотрудника; GIVE или нет записей — на месте у завхоза, все три поля null.
 public class Tool
 {
     public Guid Id { get; set; }
@@ -38,7 +31,6 @@ public class Tool
 
     public bool IsActive { get; set; }
 
-    // id сотрудника, у которого инструмент на руках; null — на месте у завхоза
     public Guid? HolderId { get; set; }
 
     // ФИО сотрудника-держателя (из users)

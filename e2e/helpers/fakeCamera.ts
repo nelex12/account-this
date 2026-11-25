@@ -1,13 +1,5 @@
 import type { BrowserContext, Page } from '@playwright/test';
 
-/**
- * Виртуальная камера.
- *
- * Скрипт подменяет navigator.mediaDevices.getUserMedia: вместо настоящей камеры приложение получает
- * поток из <canvas> (canvas.captureStream). Тест кладёт в canvas картинку — PNG наклейки или скриншот
- * QR-кода с экрана другого пользователя, — и сканер приложения читает её своим обычным декодером
- * (BarcodeDetector / zxing-wasm). Логика сканирования и проверки QR в приложении не подменяется.
- */
 const INIT_SCRIPT = () => {
   const W = 1280;
   const H = 720;
@@ -78,7 +70,6 @@ export async function installFakeCamera(context: BrowserContext) {
   await context.addInitScript(INIT_SCRIPT);
 }
 
-/** Показывает картинку (PNG) виртуальной камере страницы. null — пустой кадр. */
 export async function showToCamera(page: Page, png: Buffer | null) {
   const dataUrl = png ? `data:image/png;base64,${png.toString('base64')}` : null;
   await page.evaluate((u) => (window as unknown as { __e2eShowToCamera: (u: string | null) => Promise<void> }).__e2eShowToCamera(u), dataUrl);

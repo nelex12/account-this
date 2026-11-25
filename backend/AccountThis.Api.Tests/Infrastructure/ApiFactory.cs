@@ -9,9 +9,6 @@ using Testcontainers.RabbitMq;
 
 namespace AccountThis.Api.Tests.Infrastructure;
 
-// Поднимает систему целиком: API (все middleware, контроллеры, сервисы, отправка событий из outbox)
-// и Worker (потребители очередей) поверх чистых PostgreSQL и RabbitMQ в Docker. Контейнеры одни на весь прогон (коллекция "Api"). Схему создают миграции приложения при старте, как в docker-compose.
-// Нужен запущенный Docker Desktop.
 public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16")
@@ -27,17 +24,14 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     private IHost? _worker;
 
-    // Прямой доступ к БД из тестов: подготовить состояние, которое ещё не умеет выставлять API, и проверить результат
     public TestDb Db => new(_postgres.GetConnectionString());
 
     public async Task InitializeAsync()
     {
         await Task.WhenAll(_postgres.StartAsync(), _rabbitMq.StartAsync());
 
-        // Запуск приложения применяет миграции: до первого теста схема уже есть, даже если тест начинает с TestDb
         _ = Services;
 
-        // Worker — отдельный процесс в docker-compose; здесь — отдельный хост в том же процессе, с теми же потребителями
         var worker = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { EnvironmentName = "Testing" });
         worker.Configuration.AddInMemoryCollection(Settings);
         worker.Services.AddAccountThisWorker(worker.Configuration);
@@ -59,7 +53,6 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         ["RABBITMQ_PASSWORD"] = "test",
     };
 
-    // Подключение к брокеру из тестов: опубликовать сообщение в обход API, заглянуть в очередь отказов
     public RabbitMQ.Client.ConnectionFactory RabbitMq => new()
     {
         HostName = _rabbitMq.Hostname,
@@ -68,16 +61,13 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         Password = "test",
     };
 
-    // Строка подключения к другой базе того же контейнера (для тестов миграций на отдельной базе)
     public string ConnectionStringFor(string database) =>
         new NpgsqlConnectionStringBuilder(_postgres.GetConnectionString()) { Database = database }.ConnectionString;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        // Не Development: иначе Program.cs подхватит настоящий .env из корня репозитория
         builder.UseEnvironment("Testing");
 
-        // UseSetting, а не ConfigureAppConfiguration: Program.cs читает конфигурацию ещё до builder.Build()
         foreach (var (key, value) in Settings)
         {
             builder.UseSetting(key, value);

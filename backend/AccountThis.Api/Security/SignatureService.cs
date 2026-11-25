@@ -4,17 +4,14 @@ using System.Text;
 
 namespace AccountThis.Api.Security;
 
-// Ключи — сырые байты в base64url без паддинга: приватный — 32-байтный seed, публичный — 32 байта
 public sealed record Ed25519KeyPair(string PrivateKey, string PublicKey);
 
-// Ed25519 (RFC 8032). Ключ сервера — SERVER_SIGNING_KEY; подписываются ASCII-строки, подписи — 64 байта в base64url.
 public interface ISignatureService
 {
     string ServerPublicKey { get; }
 
     string SignWithServerKey(string message);
 
-    // Подпись ключом сервера проверяется так же: Verify(ServerPublicKey, ...)
     bool Verify(string publicKey, string message, string signature);
 
     // Временная пара для сертификата сотрудника
@@ -43,11 +40,7 @@ public class SignatureService : ISignatureService, IDisposable
         ServerPublicKey = Base64UrlEncoder.Encode(publicBytes);
     }
 
-    /// <summary>
-    /// Возвращает строку — подпись ключом сервера
-    /// </summary>
-    /// <param name="message"></param>
-    /// <returns></returns>
+    /// <summary>Подпись ключом сервера.</summary>
     public string SignWithServerKey(string message)
     {
         byte[] messageBytes = Encoding.ASCII.GetBytes(message);
@@ -56,13 +49,7 @@ public class SignatureService : ISignatureService, IDisposable
         return Base64UrlEncoder.Encode(signatureBytes);
     }
 
-    /// <summary>
-    /// Проверяет подпись к данным
-    /// </summary>
-    /// <param name="publicKey"></param>
-    /// <param name="message"></param>
-    /// <param name="signature"></param>
-    /// <returns></returns>
+    /// <summary>Проверка подписи.</summary>
     public bool Verify(string publicKey, string message, string signature)
     {
         try
@@ -77,10 +64,7 @@ public class SignatureService : ISignatureService, IDisposable
         }
     }
 
-    /// <summary>
-    /// Создаёт пару ключей Ed25519 (приватный и публичный)
-    /// </summary>
-    /// <returns></returns>
+    /// <summary>Генерация ключей Ed25519.</summary>
     public Ed25519KeyPair GenerateKeyPair()
     {
         using var newKey = Key.Create(_alg, new KeyCreationParameters

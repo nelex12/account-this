@@ -6,27 +6,19 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace AccountThis.Api.Controllers;
 
-// Базовый уровень доступа: Issuer, Owner. Списание (DeleteTool) отдельно сужено до Owner.
-// У каждой компании свой реестр: методы работают только с инструментами компании вызывающего (company_id из JWT);
-// инструмент другой компании неотличим от несуществующего: 404.
 [ApiController]
 [Route("api/tools")]
 [Authorize(Roles = "Issuer,Owner")]
 public class ToolsController(IToolsService toolsService) : ControllerBase
 {
-    /// <summary>
-    /// Реестр активных (не списанных) инструментов своей компании — локальный реестр завхоза и печать QR-кодов.
-    /// </summary>
+    /// <summary>Активные инструменты компании.</summary>
     [HttpGet]
     public async Task<ActionResult<List<Tool>>> GetTools(CancellationToken cancellationToken)
     {
         return await toolsService.GetActiveToolsAsync(User.GetCompanyId(), cancellationToken);
     }
 
-    /// <summary>
-    /// Добавление нового инструмента в реестр своей компании (состояние Good). id (UUID) присваивает БД;
-    /// созданный инструмент возвращается в ответе (201, CreatedAtAction на GetTool — заголовок Location) — по id печатается QR.
-    /// </summary>
+    /// <summary>Добавление инструмента.</summary>
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -36,9 +28,7 @@ public class ToolsController(IToolsService toolsService) : ControllerBase
         return CreatedAtAction(nameof(GetTool), new { id = tool.Id }, tool);
     }
 
-    /// <summary>
-    /// Данные инструмента по id (в том числе списанного).
-    /// </summary>
+    /// <summary>Карточка инструмента.</summary>
     [HttpGet("{id}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -49,11 +39,7 @@ public class ToolsController(IToolsService toolsService) : ControllerBase
         return tool is null ? ToolNotFound(id) : tool;
     }
 
-    /// <summary>
-    /// Ручное обновление состояния инструмента (фиксация поломки/ремонта вне цикла TAKE/GIVE).
-    /// Изменение condition выставляет время изменения состояния в текущее время сервера.
-    /// Разрешено и для списанного инструмента (is_active не меняется).
-    /// </summary>
+    /// <summary>Изменение состояния инструмента.</summary>
     [HttpPatch("{id}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -63,9 +49,7 @@ public class ToolsController(IToolsService toolsService) : ControllerBase
         return await toolsService.UpdateConditionAsync(User.GetCompanyId(), User.GetUserId(), id, request, cancellationToken) ? Ok() : ToolNotFound(id);
     }
 
-    /// <summary>
-    /// Списание инструмента (is_active = false), необратимо. Повторный вызов — 200. Требуется роль: Owner.
-    /// </summary>
+    /// <summary>Списание инструмента.</summary>
     [HttpDelete("{id}")]
     [Authorize(Roles = "Owner")]
     [ProducesResponseType(StatusCodes.Status200OK)]

@@ -7,9 +7,6 @@ using NSec.Cryptography;
 
 namespace AccountThis.Api.Tests.Infrastructure;
 
-// Строка QR сотрудника "AT1.<token>.<serverSignature>.<op>.<workerSignature>", собранная прямо по api.yaml
-// (OfflineRentalPayload), независимо от сервера. Сертификат либо подделывается тестом (любой срок, любой ключ сервера),
-// либо берётся настоящий из /api/auth/worker-cert.
 public sealed class QrBuilder : IDisposable
 {
     private static readonly SignatureAlgorithm Ed25519 = SignatureAlgorithm.Ed25519;
@@ -29,8 +26,6 @@ public sealed class QrBuilder : IDisposable
 
     public static long Now => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-    // Сертификат, подписанный ключом сервера serverPrivateKey (по умолчанию — настоящим тестовым ключом сервера).
-    // По умолчанию выдан час назад и действует 12 часов
     public static QrBuilder Forge(
         Guid workerId,
         string fio = "Иванов Иван Иванович",
@@ -53,14 +48,12 @@ public sealed class QrBuilder : IDisposable
         return new QrBuilder(token, server.SignWithServerKey("AT1-TOKEN." + token), workerKey);
     }
 
-    // Настоящий сертификат сервера: строки token и serverSignature используются в точности как получены
     public static QrBuilder FromCertificate(WorkerCertificate certificate)
     {
         var workerKey = Key.Import(Ed25519, Base64UrlEncoder.DecodeBytes(certificate.TemporaryPrivateKey), KeyBlobFormat.RawPrivateKey);
         return new QrBuilder(certificate.Token, certificate.ServerSignature, workerKey);
     }
 
-    // timestamp по умолчанию — сейчас. signWithForeignKey — подпись операции чужим ключом (не парой к workerPublicKey)
     public string Qr(
         RentalAction action,
         Guid toolId,
@@ -93,7 +86,6 @@ public sealed class QrBuilder : IDisposable
         return $"AT1.{Token}.{ServerSignature}.{op}.{Base64UrlEncoder.Encode(signature)}";
     }
 
-    // base64url(UTF-8 JSON) без паддинга
     public static string Encode(object value) =>
         Base64UrlEncoder.Encode(JsonSerializer.SerializeToUtf8Bytes(value));
 

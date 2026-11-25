@@ -4,8 +4,6 @@ using NpgsqlTypes;
 
 namespace AccountThis.Worker;
 
-// Очередь audit (все события) → таблица audit_events (docs/events.md, «Потребитель audit»).
-// Вставка идемпотентна: повторная доставка того же eventId строку не дублирует
 public sealed class AuditConsumer(
     IConfiguration configuration,
     NpgsqlDataSource dataSource,

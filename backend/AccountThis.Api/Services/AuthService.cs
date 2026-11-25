@@ -31,7 +31,6 @@ public enum LoginStatus
 // AccessToken и RefreshToken заполнены только при Success
 public sealed record LoginResult(LoginStatus Status, string? AccessToken = null, string? RefreshToken = null);
 
-// Причины Failed (нет токена, неизвестен, истёк, погашен, повтор, аккаунт уволен) клиенту не различаются
 public enum RefreshStatus
 {
     Success,
@@ -56,37 +55,25 @@ public enum ChangePasswordStatus
     Changed,
     WrongCurrentPassword,
 
-    // Уволен (или пользователя из JWT нет в БД): access token ещё действует, но менять пароль и выдавать сессию нельзя
     Deactivated
 }
 
-// AccessToken и RefreshToken (новая сессия) заполнены только при Changed
 public sealed record ChangePasswordResult(ChangePasswordStatus Status, string? AccessToken = null, string? RefreshToken = null);
 
 public interface IAuthService
 {
-    // Телефон нормализуется (PhoneFormat.Normalize), пароль хешируется.
-    // Owner: создаёт компанию (CompanyName) и сам подтверждается (is_approved = true) — подтверждать некому.
-    // Worker / Issuer: присоединяются к существующей компании (CompanyId, который сообщил её Owner), is_approved = false.
     Task<RegisterStatus> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken);
 
     Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken);
 
     ServerKeyResponse GetServerKey();
 
-    // is_approved / is_active проверяются по БД в момент запроса, а не по JWT
     Task<WorkerCertResult> IssueWorkerCertificateAsync(Guid workerId, CancellationToken cancellationToken);
 
-    // Ротация: предъявленный токен гасится, новый продолжает ту же сессию (family_id).
-    // Повторное предъявление погашенного токена гасит всю сессию. Роль и компания для JWT — из БД.
     Task<RefreshResult> RefreshAsync(string? refreshToken, CancellationToken cancellationToken);
 
-    // Гасит всю сессию предъявленного токена. Неизвестный, пустой или уже погашенный токен — не ошибка
     Task LogoutAsync(string? refreshToken, CancellationToken cancellationToken);
 
-    // Смена пароля по текущему паролю. В одной транзакции: новый хеш, погашены все сессии пользователя
-    // (все устройства), начата новая сессия — для устройства, с которого сменили пароль.
-    // Пользователь ищется по id и компании из JWT; is_active проверяется по БД
     Task<ChangePasswordResult> ChangePasswordAsync(
         Guid companyId, Guid userId, ChangePasswordRequest request, CancellationToken cancellationToken);
 }
@@ -101,14 +88,8 @@ public class AuthService(
 {
     public static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
 
-    // Окно, в которое токен, погашенный ротацией, можно предъявить снова, если ответ с новым токеном не дошёл
-    // до браузера (F5 сразу после открытия страницы, обрыв сети). Условие — выданный взамен токен ещё не использован
-    // (Migrations/0003_refresh_token_replaced_by.sql). Вор, перехвативший токен, получает не больше этого окна
-    // и только пока настоящий клиент молчит: как только тот обменяет новый токен, старый — снова признак кражи
     public static readonly TimeSpan RefreshReuseGrace = TimeSpan.FromSeconds(30);
 
-    // Токен сертификата: camelCase-имена полей по api.yaml, UUID — строчные hex 8-4-4-4-12 (формат "D").
-    // Кириллица не экранируется (\uXXXX втрое длиннее UTF-8), чтобы QR оставался коротким
     private static readonly JsonSerializerOptions TokenJsonOptions = new(JsonSerializerDefaults.Web)
     {
         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
@@ -116,12 +97,6 @@ public class AuthService(
 
     public async Task<RegisterStatus> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken)
     {
-        // Owner — в одной транзакции: INSERT в companies, затем в users (role = Owner, is_approved = true).
-        //   Нарушение UNIQUE(phone) (SqlState 23505) — PhoneTaken, а компания при этом не создаётся (откат транзакции).
-        // Worker / Issuer — INSERT в users с company_id = CompanyId, is_approved = false.
-        //   Нарушение внешнего ключа company_id (SqlState 23503) — CompanyNotFound; UNIQUE(phone) — PhoneTaken.
-        // Различать нарушенное ограничение по PostgresException.ConstraintName.
-        // id компании и пользователя выдаёт БД (gen_random_uuid()): INSERT ... RETURNING id.
         var normalizedPhone = PhoneFormat.Normalize(request.Phone);
         var hash = passwordHasher.Hash(request.Password);
 
@@ -168,7 +143,6 @@ public class AuthService(
                 var result = await cmdCreateCompany.ExecuteScalarAsync(cancellationToken);
                 var companyId = (Guid)result!;
 
-
                 await using var cmdAddOwner = new NpgsqlCommand(
                     "INSERT INTO " +
                     "users (company_id, full_name, phone, password_hash, role, is_approved) " +
@@ -207,9 +181,6 @@ public class AuthService(
 
     public async Task<LoginResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
     {
-        // Неизвестный телефон и неверный пароль неразличимы для клиента — оба InvalidCredentials.
-        // is_approved / is_active проверяются только после верного пароля, чтобы не раскрывать статус чужого аккаунта.
-        // В JWT кладётся id, роль и company_id пользователя: CreateAccessToken(id, role, companyId).
         var normalizedPhone = PhoneFormat.Normalize(request.Phone);
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
 
@@ -245,16 +216,13 @@ public class AuthService(
             return new LoginResult(LoginStatus.NotApproved);
         }
 
-
         var userId = userReader.GetGuid(0);
         var companyId = userReader.GetGuid(2);
         var userRole = Enum.Parse<UserRole>(userReader.GetString(1));
         var jwtToken = jwtTokenService.CreateAccessToken(userId, userRole, companyId);
 
-        // Пока reader открыт, другую команду на этом соединении выполнить нельзя
         await userReader.CloseAsync();
 
-        // Вход начинает новую сессию: новый family_id. Токен и событие входа — в одной транзакции
         await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
         var (_, refreshToken) = await InsertRefreshTokenAsync(conn, transaction, userId, Guid.NewGuid(), cancellationToken);
         await eventOutbox.AddAsync(conn, transaction, EventTypes.AuthLoggedIn, companyId, userId, new { }, cancellationToken);
@@ -273,8 +241,6 @@ public class AuthService(
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
 
-        // FOR UPDATE: два одновременных обмена одного токена выполняются по очереди,
-        // второй увидит revoked_at первого и будет засчитан как повторное предъявление
         await using var cmdFind = new NpgsqlCommand(
             "SELECT rt.id, rt.family_id, rt.expires_at, rt.revoked_at, rt.replaced_by, " +
             "u.id, u.role::text, u.company_id, u.is_active " +
@@ -313,8 +279,6 @@ public class AuthService(
         var isRevoked = revokedAt is not null;
         var now = timeProvider.GetUtcNow().ToUnixTimeSeconds();
 
-        // Потерянный ответ: токен погашен ротацией недавно, а выданный взамен ни разу не предъявлен.
-        // Это тот же клиент — продолжаем сессию: неиспользованный токен гасим, выдаём новый
         if (isActive
             && expiresAt > now
             && replacedBy is long successorId
@@ -323,7 +287,7 @@ public class AuthService(
         {
             var (retryTokenId, retryToken) = await InsertRefreshTokenAsync(conn, transaction, userId, familyId, cancellationToken);
 
-            // revoked_at не меняется: окно отсчитывается от первой ротации и повторами не продлевается
+            // Повторы не продлевают окно ротации.
             await using var cmdRelink = new NpgsqlCommand(
                 "UPDATE refresh_tokens SET replaced_by = @newId WHERE id = @id",
                 conn,
@@ -336,14 +300,10 @@ public class AuthService(
             return new RefreshResult(RefreshStatus.Success, jwtTokenService.CreateAccessToken(userId, role, companyId), retryToken);
         }
 
-        // Погашенный токен предъявлен снова — признак кражи: гасим всю сессию, включая выданный взамен токен.
-        // Уволенному тоже гасим: сессия ему больше не нужна
         if (isRevoked || !isActive)
         {
             var revoked = await RevokeFamilyAsync(conn, transaction, familyId, now, cancellationToken);
 
-            // Погасился хоть один токен — сессия была жива, а погашенным токеном воспользовались повторно (кража).
-            // Ничего не погасилось — сессия уже была завершена (выход, увольнение), это не кража
             if (isRevoked && revoked > 0)
             {
                 await eventOutbox.AddAsync(conn, transaction, EventTypes.AuthSessionReuseDetected, companyId, userId, new { }, cancellationToken);
@@ -399,8 +359,6 @@ public class AuthService(
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await conn.BeginTransactionAsync(cancellationToken);
 
-        // FOR UPDATE: две одновременные смены пароля идут по очереди, и вторая проверяет текущий пароль
-        // уже по новому хешу. company_id в WHERE — та же изоляция, что и везде: id из токена ищется в компании из токена
         UserRole role;
         string storedHash;
         await using (var cmdFind = new NpgsqlCommand(
@@ -436,7 +394,6 @@ public class AuthService(
             await cmdUpdate.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        // Пароль мог утечь: гасятся все сессии пользователя, как при увольнении. Сессия = family_id
         int revokedSessions;
         await using (var cmdRevoke = new NpgsqlCommand(
             "WITH revoked AS (" +
@@ -450,7 +407,6 @@ public class AuthService(
             revokedSessions = (int)(await cmdRevoke.ExecuteScalarAsync(cancellationToken))!;
         }
 
-        // Устройство, с которого сменили пароль, остаётся в системе: новая сессия, как при входе
         var (_, refreshToken) = await InsertRefreshTokenAsync(conn, transaction, userId, Guid.NewGuid(), cancellationToken);
         await eventOutbox.AddAsync(conn, transaction, EventTypes.AuthPasswordChanged, companyId, userId,
             new { revokedSessions }, cancellationToken);
@@ -460,8 +416,6 @@ public class AuthService(
         return new ChangePasswordResult(ChangePasswordStatus.Changed, accessToken, refreshToken);
     }
 
-    // Гасит токен, выданный взамен, только если его ещё ни разу не предъявили (revoked_at IS NULL).
-    // FOR UPDATE: если тот же токен сейчас обменивается, ждём его транзакцию и увидим, что он уже использован
     private static async Task<bool> TryRevokeUnusedSuccessorAsync(
         NpgsqlConnection conn, NpgsqlTransaction transaction, long successorId, long now, CancellationToken cancellationToken)
     {
@@ -488,7 +442,6 @@ public class AuthService(
         return true;
     }
 
-    // Новый refresh token сессии familyId. В БД — только SHA-256 токена, клиенту — сам токен (base64url)
     private async Task<(long Id, string Token)> InsertRefreshTokenAsync(
         NpgsqlConnection conn, NpgsqlTransaction transaction, Guid userId, Guid familyId, CancellationToken cancellationToken)
     {
@@ -523,7 +476,6 @@ public class AuthService(
         return await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    // Токен — base64url от 32 байт. Всё остальное (нет cookie, мусор) заведомо не найдётся в БД
     private static bool TryHashRefreshToken(string? refreshToken, out byte[] tokenHash)
     {
         tokenHash = [];
@@ -567,7 +519,6 @@ public class AuthService(
             cmd.Parameters.AddWithValue("id", workerId);
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-            // Пользователя из действующего JWT нет в БД — сертификат не выдаётся, как уволенному
             if (!await reader.ReadAsync(cancellationToken) || !reader.GetBoolean(2))
             {
                 return new WorkerCertResult(WorkerCertStatus.Deactivated);

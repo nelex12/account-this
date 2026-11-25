@@ -6,9 +6,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// POST /api/sync (роль Issuer). Каждая запись сохраняется с флагом по первой непройденной проверке
-// (порядок — ValidationFlag в api.yaml); строка не по формату AT1 — 400 для всего запроса, ничего не сохраняется.
-// QR собираются в тестах (QrBuilder) ключом сервера из TestKeys — независимо от /api/auth/worker-cert.
 [Collection("Api")]
 public class SyncTests(ApiFactory factory)
 {
@@ -53,7 +50,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(JsonValueKind.Null, tool.GetProperty("heldSince").ValueKind);
     }
 
-    // Держатель — по последней по времени операции, а не по порядку синхронизации
     [Fact]
     public async Task LateSyncedOlderTake_DoesNotOverrideNewerGive()
     {
@@ -67,7 +63,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(JsonValueKind.Null, (await GetTool(company.Owner, company.ToolId)).GetProperty("holderId").ValueKind);
     }
 
-    // Ответ возвращается для каждой записи в порядке запроса
     [Fact]
     public async Task Results_AreInRequestOrder()
     {
@@ -108,9 +103,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
-    // ---------- Флаги ----------
-
-    // Подпись сервера неверна — привязок нет: поддельный токен не приписывает операцию сотруднику
     [Fact]
     public async Task ForgedToken_IsInvalidServerSig_WithoutBindings()
     {
@@ -122,14 +114,12 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal("INVALID_SERVER_SIG", entry.GetProperty("validationFlag").GetString());
         Assert.Equal(JsonValueKind.Null, entry.GetProperty("workerId").ValueKind);
         Assert.Equal(JsonValueKind.Null, entry.GetProperty("toolId").ValueKind);
-        // Имена — из непроверенных значений строки QR
         Assert.Equal("Поддельный Сотрудник", entry.GetProperty("workerName").GetString());
         Assert.Equal("Заявленная дрель", entry.GetProperty("toolName").GetString());
         // Держателя не появилось
         Assert.Equal(JsonValueKind.Null, (await GetTool(company.Owner, company.ToolId)).GetProperty("holderId").ValueKind);
     }
 
-    // Подпись работника неверна — сотрудник известен (токен подлинный), инструмент — нет
     [Fact]
     public async Task ForeignOperationSignature_IsInvalidWorkerSig_WithWorkerOnly()
     {
@@ -144,7 +134,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(JsonValueKind.Null, entry.GetProperty("toolId").ValueKind);
     }
 
-    // Подпись над изменённой строкой op не сходится
     [Fact]
     public async Task TamperedOperation_IsInvalidWorkerSig()
     {
@@ -173,7 +162,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal("EXPIRED_TOKEN", flag);
     }
 
-    // Границы сертификата включительно: [issuedAt, expiresAt]
     [Fact]
     public async Task TimestampAtCertificateBounds_IsValid()
     {
@@ -206,7 +194,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(expected, flag);
     }
 
-    // Сотрудник другой компании неотличим от несуществующего; привязки к нему нет, инструмент свой — привязан
     [Fact]
     public async Task WorkerOfAnotherCompany_IsUnknownWorker()
     {
@@ -231,7 +218,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal("UNKNOWN_WORKER", await SyncOneFlag(company, qr.Qr(RentalAction.TAKE, company.ToolId)));
     }
 
-    // Операция не раньше момента увольнения — WORKER_DEACTIVATED; до увольнения — VALID
     [Fact]
     public async Task FiredWorker_OperationsAfterDeactivationAreFlagged()
     {
@@ -261,11 +247,9 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(JsonValueKind.Null, entry.GetProperty("toolId").ValueKind);
         Assert.Equal("Чужая дрель", entry.GetProperty("toolName").GetString());
         Assert.Equal(company.Worker.Id, entry.GetProperty("workerId").GetGuid());
-        // Чужой инструмент не получил держателя
         Assert.Equal(JsonValueKind.Null, (await GetTool(stranger.Owner, stranger.ToolId)).GetProperty("holderId").ValueKind);
     }
 
-    // Один QR отсканирован дважды (разное время сканирования) — вторая запись DUPLICATE
     [Fact]
     public async Task SameQrScannedAgain_IsDuplicate()
     {
@@ -281,7 +265,6 @@ public class SyncTests(ApiFactory factory)
         Assert.All(second, r => Assert.Equal("DUPLICATE", r.GetProperty("validationFlag").GetString()));
     }
 
-    // Записи с другими флагами не в счёт: испорченная копия, отправленная первой, не делает честную запись дублем
     [Fact]
     public async Task NonValidCopyFirst_DoesNotMakeLaterRecordDuplicate()
     {
@@ -295,9 +278,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(new[] { "TIME_DRIFT", "VALID" }, results.Select(r => r.GetProperty("validationFlag").GetString()));
     }
 
-    // ---------- Идемпотентность ----------
-
-    // Та же запись (issuer, scannedAt, qr) повторно не создаётся: возвращается существующая
     [Fact]
     public async Task ResentRecord_ReturnsExistingLogWithoutDuplicating()
     {
@@ -317,7 +297,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(1, await _db.CountRentalLogsAsync(company.Owner.CompanyId));
     }
 
-    // Другой завхоз той же компании, отправивший тот же QR, — не повтор, а DUPLICATE
     [Fact]
     public async Task SameRecordFromAnotherIssuer_IsDuplicate()
     {
@@ -334,7 +313,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(2, await _db.CountRentalLogsAsync(company.Owner.CompanyId));
     }
 
-    // Параллельные запросы с одним QR: VALID-запись ровно одна
     [Fact]
     public async Task ConcurrentSyncOfSameQr_ProducesSingleValid()
     {
@@ -350,9 +328,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(4, flags.Count(f => f == "DUPLICATE"));
     }
 
-    // ---------- Формат ----------
-
-    // Строка не по формату — 400 с номерами таких записей, ничего не сохраняется
     [Fact]
     public async Task MalformedQr_RejectsWholeRequestWithIndexes()
     {
@@ -394,9 +369,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    // ---------- Состояние инструмента ----------
-
-    // VALID обновляет condition, если операция не раньше последнего изменения состояния
     [Fact]
     public async Task ValidOperation_UpdatesToolCondition_OnlyIfNotOlder()
     {
@@ -408,12 +380,10 @@ public class SyncTests(ApiFactory factory)
         await Sync(company.Issuer, (qr.Qr(RentalAction.GIVE, company.ToolId, now - 10, ToolCondition.Damaged), now - 10));
         Assert.Equal(("Damaged", now - 10), await _db.FindToolConditionAsync(company.ToolId));
 
-        // Более старая операция, синхронизированная позже, состояние не перезаписывает
         await Sync(company.Issuer, (qr.Qr(RentalAction.TAKE, company.ToolId, now - 40, ToolCondition.Good), now - 40));
         Assert.Equal("Damaged", (await _db.FindToolConditionAsync(company.ToolId)).Condition);
     }
 
-    // Ручное изменение через PATCH (время сервера) не перезаписывается более ранней операцией
     [Fact]
     public async Task ManualPatch_IsNotOverriddenByEarlierOperation()
     {
@@ -441,9 +411,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal("Good", (await _db.FindToolConditionAsync(company.ToolId)).Condition);
     }
 
-    // ---------- Сквозной сценарий ----------
-
-    // Настоящий сертификат из /api/auth/worker-cert → QR, подписанный временным ключом → VALID
     [Fact]
     public async Task EndToEnd_CertificateFromServer_ProducesValidRecord()
     {
@@ -461,8 +428,6 @@ public class SyncTests(ApiFactory factory)
         Assert.Equal(company.ToolId, entry.GetProperty("toolId").GetGuid());
         Assert.Equal(company.Issuer.Id, entry.GetProperty("issuerId").GetGuid());
     }
-
-    // ---------- Подготовка ----------
 
     private sealed record Company(TestUser Owner, TestUser Issuer, TestUser Worker, Guid ToolId);
 
@@ -494,7 +459,6 @@ public class SyncTests(ApiFactory factory)
         return results.Single().GetProperty("validationFlag").GetString()!;
     }
 
-    // Синхронизация одной записи и её строка из GET /api/logs
     private async Task<JsonElement> SyncOneAndReadLog(Company company, string qr, long? scannedAt = null)
     {
         var logId = (await Sync(company.Issuer, (qr, scannedAt ?? QrBuilder.Now))).Single().GetProperty("logId").GetInt32();

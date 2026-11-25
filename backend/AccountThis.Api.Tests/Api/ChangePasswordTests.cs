@@ -6,9 +6,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// POST /api/auth/change-password — любая роль, JWT. В одной транзакции: новый хеш пароля, погашены все сессии
-// пользователя, начата новая (ответ как у входа: access token в теле, refresh token в cookie).
-// JWT собирается в тестах (TestTokens), refresh token-ы — из настоящего входа.
 [Collection("Api")]
 public class ChangePasswordTests(ApiFactory factory)
 {
@@ -35,7 +32,6 @@ public class ChangePasswordTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, (await _client.RefreshAsync(refreshToken)).StatusCode);
     }
 
-    // Выданный access token рабочий: в нём тот же пользователь
     [Fact]
     public async Task NewAccessToken_Works()
     {
@@ -62,7 +58,6 @@ public class ChangePasswordTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, (await _client.LoginAsync(owner.Phone, NewPassword)).StatusCode);
     }
 
-    // Пароль мог утечь: все прежние сессии на всех устройствах завершаются
     [Fact]
     public async Task AfterChange_AllPreviousSessionsEnd()
     {
@@ -78,7 +73,6 @@ public class ChangePasswordTests(ApiFactory factory)
         Assert.Equal(1, await _db.CountActiveRefreshTokensAsync(owner.Id));
     }
 
-    // Сессии других пользователей не затрагиваются
     [Fact]
     public async Task OtherUsersSessions_KeepWorking()
     {
@@ -91,7 +85,6 @@ public class ChangePasswordTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, (await _client.RefreshAsync(colleagueSession)).StatusCode);
     }
 
-    // Не 401: его клиент принял бы за истёкший access token
     [Fact]
     public async Task WrongCurrentPassword_Returns400AndChangesNothing()
     {
@@ -156,7 +149,6 @@ public class ChangePasswordTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    // Access token уволенного ещё действует, но is_active проверяется по БД
     [Fact]
     public async Task DeactivatedUser_Returns403AndChangesNothing()
     {
@@ -172,7 +164,6 @@ public class ChangePasswordTests(ApiFactory factory)
         Assert.Equal(hashBefore, (await _db.FindUserAsync(worker.Phone))!.PasswordHash);
     }
 
-    // sub из чужой компании неотличим от несуществующего пользователя
     [Fact]
     public async Task UserFromAnotherCompanyInJwt_Returns403()
     {

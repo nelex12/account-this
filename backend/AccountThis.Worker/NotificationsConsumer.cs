@@ -5,10 +5,6 @@ using NpgsqlTypes;
 
 namespace AccountThis.Worker;
 
-// Очередь notifications → таблица notifications (docs/events.md, «Потребитель notifications»).
-// Из потока событий выбирает то, что требует внимания Owner; API показывает это в GET /api/notifications.
-// Подписка очереди — только на нужные типы (RabbitMqTopology.Queues), остальные сюда не приходят.
-// Одно событие — не более одного уведомления (ON CONFLICT (event_id) DO NOTHING), поэтому повторная доставка безвредна
 public sealed class NotificationsConsumer(
     IConfiguration configuration,
     NpgsqlDataSource dataSource,
@@ -30,7 +26,6 @@ public sealed class NotificationsConsumer(
         _ => Task.FromResult(true),
     };
 
-    // Сотрудник и завхоз ждут подтверждения Owner; Owner подтверждается сам, уведомлять не о чем
     private Task<bool> OnUserRegisteredAsync(EventMessage message, CancellationToken cancellationToken)
     {
         if (!TryGetGuid(message.Data, "userId", out var userId)
@@ -44,7 +39,6 @@ public sealed class NotificationsConsumer(
             : InsertAsync(message, EmployeeAwaitingApproval, userId, null, cancellationToken);
     }
 
-    // Owner подтвердил или уволил пользователя — уведомление «ждёт подтверждения» больше не требует внимания
     private async Task<bool> OnEmployeeDecidedAsync(EventMessage message, CancellationToken cancellationToken)
     {
         if (!TryGetGuid(message.Data, "userId", out var userId))
@@ -65,8 +59,6 @@ public sealed class NotificationsConsumer(
         return true;
     }
 
-    // Записи с флагом, отличным от VALID: подделка подписи, просроченный сертификат, уволенный сотрудник, повтор QR...
-    // Только новые записи (data.flags не учитывает повторную отправку), поэтому повтор синхронизации уведомление не дублирует
     private Task<bool> OnRentalSyncedAsync(EventMessage message, CancellationToken cancellationToken)
     {
         if (!message.Data.TryGetProperty("flags", out var flags) || flags.ValueKind != JsonValueKind.Object)

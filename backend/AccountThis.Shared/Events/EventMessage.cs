@@ -21,8 +21,6 @@ public static class EventTypes
     public const string RentalSynced = "rental.synced";
 }
 
-// Сообщение о событии (docs/events.md, «Сообщение»): одинаковый конверт у всех типов, Data — поля конкретного типа.
-// Его пишет в outbox и отправляет в RabbitMQ API, читают потребители Worker
 public sealed class EventMessage
 {
     public const int MaxTypeLength = 64;
@@ -39,7 +37,6 @@ public sealed class EventMessage
 
     public JsonElement Data { get; init; }
 
-    // camelCase, как в api.yaml; кириллица в названиях не экранируется
     public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
@@ -48,8 +45,6 @@ public sealed class EventMessage
 
     public byte[] ToUtf8Bytes() => JsonSerializer.SerializeToUtf8Bytes(this, JsonOptions);
 
-    // Строгий разбор тела сообщения: все поля конверта обязательны, data — JSON-объект.
-    // false — сообщение не по контракту (его место — в очереди отказов, а не в повторной обработке)
     public static bool TryParse(ReadOnlyMemory<byte> body, [NotNullWhen(true)] out EventMessage? message)
     {
         message = null;

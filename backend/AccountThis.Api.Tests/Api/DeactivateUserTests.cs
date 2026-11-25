@@ -5,7 +5,6 @@ using AccountThis.Api.Tests.Infrastructure;
 
 namespace AccountThis.Api.Tests.Api;
 
-// DELETE /api/users/{id} (роль Owner): статусы и последствия увольнения. Про сессии — DeactivationRevokesSessionsTests.
 [Collection("Api")]
 public class DeactivateUserTests(ApiFactory factory)
 {
@@ -75,7 +74,6 @@ public class DeactivateUserTests(ApiFactory factory)
         Assert.True((await factory.Db.FindUserAsync(colleague.Phone))!.IsActive);
     }
 
-    // Владельца одной компании может уволить владелец той же компании, но не чужой
     [Fact]
     public async Task OwnerOfAnotherCompany_Returns404()
     {

@@ -10,15 +10,12 @@ export interface Person {
   key: string;
   role: Role;
   fullName: string;
-  /** как вводит пользователь */
   phone: string;
   password: string;
 }
 
-/** Данные одного прогона: своя компания и свои номера, чтобы прогоны не мешали друг другу. */
 export function makeRunData() {
   const run = Date.now().toString().slice(-6);
-  // Пароли генерируются на каждый прогон и живут только в локальной базе
   const pwd = () => `E2e-${randomBytes(6).toString('base64url')}`;
   const phone = (n: number) => `+7999${run}${n}`.slice(0, 12);
   const people = {
@@ -36,7 +33,6 @@ export function makeRunData() {
     tool3: `Болгарка E2E ${run}`,
     people,
   };
-  // Чтобы после прогона можно было зайти и посмотреть руками (только локальная база)
   const dir = path.join(import.meta.dirname, '..', '.run');
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'last-run.json'), JSON.stringify(data, null, 2));
@@ -51,7 +47,6 @@ export const PHONE = {
   hasTouch: true,
 };
 
-/** Отдельный «браузер» (контекст) на человека: свои cookie, IndexedDB, ключи. */
 export async function openAs(browser: Browser, kind: 'desktop' | 'phone'): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     ...(kind === 'desktop' ? DESKTOP : PHONE),
@@ -91,21 +86,14 @@ export async function loginOk(page: Page, p: Person) {
   await expect(page).toHaveURL(/\/overview$/);
 }
 
-/** Строка таблицы (DataTable) по тексту в ней. */
 export function row(page: Page, text: string | RegExp) {
   return page.getByRole('row').filter({ hasText: text });
 }
 
-/** Красное сообщение об ошибке (не путать с зелёным «Приложение готово к работе без интернета»). */
 export function errorAlert(page: Page) {
   return page.locator('[role="alert"].MuiAlert-colorError');
 }
 
-/**
- * Переход с ожиданием, пока страница «успокоится» (в том числе POST /api/auth/refresh при загрузке).
- * Нужен в циклах ожидания: если перезагрузить страницу, пока refresh ещё в пути, браузер не получит
- * новый refresh cookie, а сервер посчитает старый «украденным» и завершит сессию (см. тест 9.1).
- */
 export async function openSettled(page: Page, url: string) {
   await page.goto(url);
   await page.waitForLoadState('networkidle');

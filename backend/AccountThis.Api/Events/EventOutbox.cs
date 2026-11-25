@@ -5,9 +5,6 @@ using NpgsqlTypes;
 
 namespace AccountThis.Api.Events;
 
-// Transactional outbox (docs/events.md, «Издатель»): сервис записывает событие в outbox_events в своей транзакции,
-// до COMMIT. Откатилось изменение — откатилось и событие; зафиксировано — событие точно будет отправлено
-// (OutboxDispatcher). Вызывать только при реальном изменении состояния.
 public interface IEventOutbox
 {
     Task AddAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,
@@ -16,7 +13,7 @@ public interface IEventOutbox
 
 public sealed class EventOutbox(TimeProvider timeProvider) : IEventOutbox
 {
-    // Канал LISTEN/NOTIFY: PostgreSQL доставляет NOTIFY только после COMMIT, поэтому диспетчер не увидит сигнал раньше строки
+    // PostgreSQL доставляет сигнал после COMMIT.
     public const string NotifyChannel = "outbox_events";
 
     public async Task AddAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,

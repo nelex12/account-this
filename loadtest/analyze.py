@@ -1,5 +1,3 @@
-# Разбор сырых метрик k6 (results/<прогон>/raw.csv.gz): таблица по ступеням нагрузки, по эндпоинтам и график.
-# Запуск: python loadtest/analyze.py run2
 import csv
 import gzip
 import statistics
@@ -13,7 +11,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 RES = Path(__file__).parent / "results" / (sys.argv[1] if len(sys.argv) > 1 else "run")
-# Окна «полки» каждой ступени (секунды от старта), без участков разгона — см. stages в load.js
 STAGES = [("20 VU", 30, 150), ("50 VU", 180, 240), ("100 VU", 270, 330)]
 
 
@@ -62,7 +59,6 @@ for name in ["index", "asset-css", "asset-js", "server-key", "tools-unauth"]:
     s = row_stats(by_name[name], total)
     print(f"| {name} | {s['n']} | {s['err']:.2f} | {s['p50']:.0f} | {s['p95']:.0f} | {s['p99']:.0f} | {s['max']:.0f} |")
 
-# График по 5-секундным окнам: p50/p95 задержки и RPS на фоне числа пользователей
 W = 5
 buckets = defaultdict(list)
 for t, d, *_ in reqs:
