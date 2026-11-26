@@ -550,7 +550,7 @@ test('7.1 Профиль показывает данные пользовате�
   await expect(worker.page.getByText('Сотрудник').first()).toBeVisible();
 });
 
-test('7.2 Смена пароля (через API — в интерфейсе пока нет формы): старый не работает, новый работает', async ({ request }) => {
+test('7.2 Смена пароля через API: вход со старым паролем отклонён, с новым разрешён', async ({ request }) => {
   const base = process.env.E2E_BASE_URL ?? 'http://localhost';
   const loginRes = await request.post(`${base}/api/auth/login`, { data: { phone: P.issuer.phone, password: P.issuer.password } });
   expect(loginRes.status()).toBe(200);

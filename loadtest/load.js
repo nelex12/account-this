@@ -1,3 +1,4 @@
+// Публичные запросы без входа. Ожидаемый ответ реестра — 401.
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 
